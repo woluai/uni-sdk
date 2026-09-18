@@ -1004,6 +1004,9 @@ class Agent {
           producedOutput,
           messages
         };
+      const steered = options.steer?.();
+      if (steered?.length)
+        messages.push(...steered);
       const toolMap = new Map(tools.map((t) => [t.definition.function.name, t]));
       let turn;
       try {
@@ -10686,5 +10689,5 @@ export {
   Actions
 };
 
-//# debugId=268B3A81A0A1D31A64756E2164756E21
+//# debugId=36E42679270C0E1364756E2164756E21
 //# sourceMappingURL=index.js.map

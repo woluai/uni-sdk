@@ -401,3 +401,22 @@ export function onProjectChange(cb: (project: ProjectContext | null) => void): (
 export function openArtifact(): Promise<null> {
   return Promise.resolve(null);
 }
+
+/** No local-disk browsing in standalone dev — same "host too old" rejection
+    a real bridge gives when it lacks the verb. */
+export function listHostDir(): Promise<never> {
+  return Promise.reject(new Error("@unified/host-api: listHostDir unavailable in standalone dev"));
+}
+
+/** No native folder picker in standalone dev. */
+export function pickLocalFolder(): Promise<null> {
+  return Promise.resolve(null);
+}
+
+/** No local-disk browsing in standalone dev — same "host too old" rejection
+    a real bridge gives when it lacks the verb. */
+export function readLocalFolderFiles(): Promise<never> {
+  return Promise.reject(
+    new Error("@unified/host-api: readLocalFolderFiles unavailable in standalone dev"),
+  );
+}

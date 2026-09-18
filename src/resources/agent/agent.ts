@@ -331,6 +331,11 @@ export class Agent {
           messages,
         };
 
+      // Host guidance that arrived since the last step rides in front of this
+      // request, after the tool results the model is waiting on.
+      const steered = options.steer?.();
+      if (steered?.length) messages.push(...steered);
+
       // Rebuilt every step (not hoisted) so the `tools` array is LIVE: a tool's
       // `execute` may append new ToolSpecs mid-run (deferred tool loading), and
       // both the next request's advertised definitions (below) and this map must

@@ -1430,6 +1430,9 @@ class Agent {
           producedOutput,
           messages
         };
+      const steered = options.steer?.();
+      if (steered?.length)
+        messages.push(...steered);
       const toolMap = new Map(tools.map((t) => [t.definition.function.name, t]));
       let turn;
       try {
@@ -6415,5 +6418,5 @@ export {
   FakeSyncServer
 };
 
-//# debugId=E51D628D091044C364756E2164756E21
+//# debugId=9D5CBD22C16D9A2664756E2164756E21
 //# sourceMappingURL=index.js.map

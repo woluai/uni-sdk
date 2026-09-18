@@ -133,6 +133,60 @@ export type HostDevicePref =
   | { kind: "bridge" }
   | { kind: "relay"; deviceId: string };
 
+// ─── Directory browsing ───────────────────────────────────────────────────────
+
+/** One entry of a `listHostDir` listing. */
+export interface HostDirEntry {
+  name: string;
+  path: string;
+  git: boolean;
+}
+
+/**
+ * A directory listing on a host machine — the browse verb behind attaching a
+ * remote workspace to `runAgent({ workspace })`.
+ */
+export interface DirListing {
+  path: string | null;
+  parent: string | null;
+  home: string;
+  sep: string;
+  entries: HostDirEntry[];
+  suggested?: string[];
+  truncated?: boolean;
+  restricted?: boolean;
+}
+
+export interface HostListDirOptions {
+  /** Directory to list. Omit for the host's landing view (home / suggested roots). */
+  path?: string;
+  /** Which machine to browse. Omit / "auto" follows the host's own resolution. */
+  device?: HostDevicePref;
+}
+
+// ─── Local folder pick ─────────────────────────────────────────────────────────
+
+/** One entry of a `pickLocalFolder` listing. */
+export interface LocalFolderEntry {
+  path: string;
+  size: number;
+}
+
+/** Result of `pickLocalFolder` — a native folder pick plus an ignore-aware walk. */
+export interface LocalFolderListing {
+  token: string;
+  folderName: string;
+  entries: LocalFolderEntry[];
+  skippedDirCount: number;
+  truncated: boolean;
+}
+
+/** One file read back by `readLocalFolderFiles`. */
+export interface LocalFolderFile {
+  path: string;
+  bytes: Uint8Array;
+}
+
 // ─── Projects ────────────────────────────────────────────────────────────────
 
 /** The project the user is currently working in (host `stores/projects.ts`). */
@@ -233,6 +287,13 @@ export interface HostApi {
    */
   listModels(options?: { device?: HostDevicePref }): Promise<HostModelEntry[] | null>;
   /**
+   * Browse a host machine's folders on behalf of an embedded app — the listing
+   * behind attaching a remote workspace to `runAgent({ workspace })`. Routes
+   * exactly like a run: local when there's no `device`, else bridge/relay.
+   * Omit on hosts that can't browse the local disk.
+   */
+  listHostDir?(options?: HostListDirOptions): Promise<DirListing>;
+  /**
    * Whether a model is served by a local agent CLI rather than the gateway.
    * Local lanes cannot honor `response_format`/`json_schema`, `maxSteps` or
    * `maxTokens`, and report failures without the SDK's typed `errorCode` — so
@@ -271,6 +332,13 @@ export interface HostApi {
    * those as success.
    */
   openArtifact(ref: ArtifactRef): Promise<OpenArtifactOutcome | null>;
+  /**
+   * Native folder pick + ignore-aware listing for embedded apps. `null` when
+   * cancelled. Omit on hosts that can't walk the local disk.
+   */
+  pickLocalFolder?(): Promise<LocalFolderListing | null>;
+  /** Bounded read of relative paths from a folder picked this session. */
+  readLocalFolderFiles?(token: string, paths: string[]): Promise<LocalFolderFile[]>;
 }
 
 export type {

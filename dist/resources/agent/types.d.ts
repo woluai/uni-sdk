@@ -95,6 +95,14 @@ export interface RunAgentOptions {
     signal?: AbortSignal;
     /** Progress sink — text/thinking deltas, tool calls, tool results, usage. */
     onEvent?: (event: AgentEvent) => void;
+    /**
+     * Polled at the top of every step. Whatever it returns is appended to the
+     * transcript before that step's request — how a host steers a RUNNING turn
+     * (a follow-up typed while tools are still executing) without aborting it.
+     * Return nothing when nothing is pending. Only consulted between steps: a
+     * message that arrives during the final text turn is never seen here.
+     */
+    steer?: () => ChatCompletionMessage[] | undefined;
 }
 export interface RunAgentResult {
     ok: boolean;

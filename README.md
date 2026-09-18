@@ -99,6 +99,29 @@ import { unifiedApp } from "@unifiedai/sdk/app/vite";
 import type { HostApi } from "@unifiedai/sdk/host-api";
 ```
 
+An app that also renders an inline **preview** (a chat card or side panel)
+imports the embed protocol from its own separate subpath — it runs inside a
+sandboxed, opaque-origin iframe, so it is kept out of `@unifiedai/sdk/app` on
+purpose:
+
+```ts
+// Embed-side helpers for the host's inline-preview protocol
+import { ready, onInit, onTheme, resize, openFull, fail, reference } from "@unifiedai/sdk/app/embed";
+import type { EmbedInit, EmbedReference } from "@unifiedai/sdk/app/embed";
+
+onInit(({ payload, theme }) => {
+  // render `payload` at `theme`...
+});
+onTheme((theme) => {
+  // live theme change...
+});
+
+// Push something the user picked onto the host's chat composer as a mention chip.
+reference({ id: "doc-1#p=3", label: "Paragraph 3", artifactType: "doc-paragraph" });
+
+ready(); // call last — the host replies with `init`
+```
+
 Start with [APP_GUIDE.md](APP_GUIDE.md) (tutorial), the runnable
 [`templates/app-template`](templates/app-template/README.md), and
 [PROTOCOL.md § Embedded apps](PROTOCOL.md#embedded-apps) (the normative

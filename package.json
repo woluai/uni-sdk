@@ -60,6 +60,11 @@
       "import": "./dist/app/dev-host-api.js",
       "default": "./dist/app/dev-host-api.js"
     },
+    "./app/embed": {
+      "types": "./dist/app/embed.d.ts",
+      "import": "./dist/app/embed.js",
+      "default": "./dist/app/embed.js"
+    },
     "./app/vite": {
       "types": "./dist/vite/index.d.ts",
       "import": "./dist/vite/index.js",
@@ -81,7 +86,7 @@
   "scripts": {
     "clean": "rm -rf dist docs",
     "logos": "bun run scripts/generate-logos.ts",
-    "build": "bun run clean && bun run logos && bun run build:browser && bun run build:node && bun run build:logos-entry && bun run build:testing && bun run build:app && bun run build:app-testkit && bun run build:dev-host-api && bun run build:host-api && bun run build:vite && bun run build:types && bun run build:fixup-dts && bun run build:verify",
+    "build": "bun run clean && bun run logos && bun run build:browser && bun run build:node && bun run build:logos-entry && bun run build:testing && bun run build:app && bun run build:app-testkit && bun run build:dev-host-api && bun run build:embed && bun run build:host-api && bun run build:vite && bun run build:types && bun run build:fixup-dts && bun run build:verify",
     "prepare": "bun run scripts/prepare.ts",
     "build:browser": "bun build ./src/index.ts --outdir dist --target browser --format esm --minify --sourcemap --entry-naming index.browser.js",
     "build:node": "bun build ./src/node/index.ts --outdir dist/node --target node --format esm --sourcemap --external @napi-rs/keyring --entry-naming index.js",
@@ -90,6 +95,7 @@
     "build:app": "bun build ./src/app/index.ts --outdir dist/app --target browser --format esm --sourcemap --entry-naming index.js",
     "build:app-testkit": "bun build ./src/app/testkit.ts --outdir dist/app --target browser --format esm --sourcemap --entry-naming testkit.js",
     "build:dev-host-api": "bun build ./src/app/dev-host-api.ts --outdir dist/app --target browser --format esm --sourcemap --entry-naming dev-host-api.js",
+    "build:embed": "bun build ./src/app/embed.ts --outdir dist/app --target browser --format esm --sourcemap --entry-naming embed.js",
     "build:host-api": "bun build ./src/host-api/index.ts --outdir dist/host-api --target browser --format esm --sourcemap --entry-naming index.js && cp src/host-api/ambient.d.ts dist/host-api/ambient.d.ts",
     "build:vite": "bun build ./src/vite/index.ts --outdir dist/vite --target node --format esm --sourcemap --external vite --entry-naming index.js",
     "build:types": "tsc -p tsconfig.build.json",

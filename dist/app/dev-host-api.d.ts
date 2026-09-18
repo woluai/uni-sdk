@@ -102,4 +102,12 @@ export declare function onProjectChange(cb: (project: ProjectContext | null) => 
  * their documented fallback and surface the artifact in their own UI.
  */
 export declare function openArtifact(): Promise<null>;
+/** No local-disk browsing in standalone dev — same "host too old" rejection
+    a real bridge gives when it lacks the verb. */
+export declare function listHostDir(): Promise<never>;
+/** No native folder picker in standalone dev. */
+export declare function pickLocalFolder(): Promise<null>;
+/** No local-disk browsing in standalone dev — same "host too old" rejection
+    a real bridge gives when it lacks the verb. */
+export declare function readLocalFolderFiles(): Promise<never>;
 //# sourceMappingURL=dev-host-api.d.ts.map
