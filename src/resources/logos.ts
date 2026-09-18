@@ -47,6 +47,12 @@ const SLUG_ALIASES: Record<string, string> = {
   // display name ("Claude Code") and the slug (`owned_by: "claude-code"`) differ.
   claudecode: "claude",
   "claude-code": "claude",
+  // Gateway `owned_by` creator slugs that differ from the asset's own name.
+  alibaba: "qwen",
+  deepseek: "deepseekai",
+  minimax: "minimaxai",
+  spacexai: "xai",
+  "fish-audio": "fishaudio",
 };
 
 function resolveSlug(input: ProviderLogoInput, theme: LogoTheme): LogoSlug | null {
