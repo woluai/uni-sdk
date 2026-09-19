@@ -75,17 +75,17 @@ function ready() {
   post({ t: "ready" });
 }
 export {
-  toolState,
-  resize,
-  reference,
-  ready,
-  openFull,
-  onTool,
-  onTheme,
-  onInit,
+  call,
   fail,
-  call
+  onInit,
+  onTheme,
+  onTool,
+  openFull,
+  ready,
+  reference,
+  resize,
+  toolState
 };
 
-//# debugId=ABC076E81F099C1764756E2164756E21
+//# debugId=4EE6344996A104A864756E2164756E21
 //# sourceMappingURL=embed.js.map
