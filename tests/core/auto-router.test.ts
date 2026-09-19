@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  type AutoConfig,
+  type Model,
+  type PlanStep,
   costsMore,
   defaultConfig,
   dispatchPrompt,
@@ -14,9 +17,6 @@ import {
   sequenceById,
   stepPrompt,
   testPrompt,
-  type AutoConfig,
-  type Model,
-  type PlanStep,
 } from "../../src/index";
 
 // The dispatcher never talks to a model itself — it builds prompts and reads
@@ -192,7 +192,11 @@ describe("pickWorker", () => {
   });
 
   test("a non-mechanical step goes to the primary executor", () => {
-    const step: PlanStep = { title: "design the schema", criterion: "schema exists", mechanical: false };
+    const step: PlanStep = {
+      title: "design the schema",
+      criterion: "schema exists",
+      mechanical: false,
+    };
     expect(pickWorker(step, workStage)).toBe("executor");
   });
 
@@ -317,13 +321,33 @@ describe("dispatchPrompt — workspace context", () => {
   // Learned live: with nothing attached, "implement X" drew the Build sequence,
   // which then reported 0/4 because no file could be written or run.
   const config = defaultConfig([
-    { id: "claude-code/haiku", name: "Claude Haiku", type: "text", object: "model", owned_by: "x", logo: null, model_author: { name: "x" } },
-    { id: "claude-code/opus", name: "Claude Opus", type: "text", object: "model", owned_by: "x", logo: null, model_author: { name: "x" } },
+    {
+      id: "claude-code/haiku",
+      name: "Claude Haiku",
+      type: "text",
+      object: "model",
+      owned_by: "x",
+      logo: null,
+      model_author: { name: "x" },
+    },
+    {
+      id: "claude-code/opus",
+      name: "Claude Opus",
+      type: "text",
+      object: "model",
+      owned_by: "x",
+      logo: null,
+      model_author: { name: "x" },
+    },
   ]);
 
   test("says so when no workspace is attached, and not when one is", () => {
-    expect(dispatchPrompt(config, "implement it", { codeWork: false })).toContain("No workspace is attached");
-    expect(dispatchPrompt(config, "implement it", { codeWork: true })).not.toContain("No workspace is attached");
+    expect(dispatchPrompt(config, "implement it", { codeWork: false })).toContain(
+      "No workspace is attached",
+    );
+    expect(dispatchPrompt(config, "implement it", { codeWork: true })).not.toContain(
+      "No workspace is attached",
+    );
     expect(dispatchPrompt(config, "implement it")).not.toContain("No workspace is attached");
   });
 });

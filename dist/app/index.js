@@ -162,27 +162,27 @@ var HOST_LIMITS = {
   PER_PROVIDER_TIMEOUT_MS: 1500
 };
 export {
-  truncateOnWord,
-  toSearchHit,
-  storageUnavailable,
-  scoreFields,
-  safeRegisterActions,
-  requiredParam,
-  queryBySearchText,
-  notFound,
-  matchKind,
-  makeOpenArtifactAdapter,
-  isHinted,
-  escapeHtml,
-  createLatchedFallback,
-  compareHits,
-  clampWithEllipsis,
-  SEARCH_TEXT_MAX,
-  SEARCH_PROTOCOL_VERSION,
-  PREVIEW_MAX,
+  HINTS_FLOOR,
   HOST_LIMITS,
-  HINTS_FLOOR
+  PREVIEW_MAX,
+  SEARCH_PROTOCOL_VERSION,
+  SEARCH_TEXT_MAX,
+  clampWithEllipsis,
+  compareHits,
+  createLatchedFallback,
+  escapeHtml,
+  isHinted,
+  makeOpenArtifactAdapter,
+  matchKind,
+  notFound,
+  queryBySearchText,
+  requiredParam,
+  safeRegisterActions,
+  scoreFields,
+  storageUnavailable,
+  toSearchHit,
+  truncateOnWord
 };
 
-//# debugId=9906F726E845D4DF64756E2164756E21
+//# debugId=83BCFD2F4A5C6F3564756E2164756E21
 //# sourceMappingURL=index.js.map

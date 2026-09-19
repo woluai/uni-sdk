@@ -60,7 +60,14 @@ window.addEventListener("message", (e: MessageEvent) => {
   // Only the host (our parent) drives this frame.
   if (e.source !== parent) return;
   const msg = e.data as
-    | { [key: string]: unknown; t?: string; id?: string; ok?: boolean; value?: unknown; error?: { code?: string; message?: string } }
+    | {
+        [key: string]: unknown;
+        t?: string;
+        id?: string;
+        ok?: boolean;
+        value?: unknown;
+        error?: { code?: string; message?: string };
+      }
     | undefined;
   if (!msg || msg[MSG] !== true) return;
 
@@ -85,7 +92,10 @@ window.addEventListener("message", (e: MessageEvent) => {
 });
 
 /** Ask the host to run one of THIS app's declared, non-mutating actions. */
-export function call<T = unknown>(action: string, params: Record<string, unknown> = {}): Promise<T> {
+export function call<T = unknown>(
+  action: string,
+  params: Record<string, unknown> = {},
+): Promise<T> {
   const id = `c${++seq}`;
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {

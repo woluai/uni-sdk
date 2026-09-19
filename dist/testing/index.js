@@ -2434,6 +2434,30 @@ class Calendar {
     return addExdateOp(item, key);
   }
 }
+// src/resources/decisions.ts
+class Decisions {
+  client;
+  constructor(client) {
+    this.client = client;
+  }
+  async decide(state, questions, options = {}) {
+    const req = {
+      method: "POST",
+      idempotent: true,
+      body: { state, questions, ...options.model ? { model: options.model } : {} }
+    };
+    if (options.signal)
+      req.signal = options.signal;
+    const res = await this.client.request("/api/v1/decisions", req);
+    for (const a of Object.values(res.answers ?? {})) {
+      if (typeof a.confidence !== "number") {
+        a.confidence = typeof a.noul === "number" ? Math.abs(a.noul - 0.5) * 2 : 0;
+      }
+    }
+    return res;
+  }
+}
+
 // src/resources/embeddings.ts
 var DEFAULT_BATCH_SIZE = 96;
 
@@ -6007,6 +6031,7 @@ class UnifiedAI extends Core {
   #audio;
   #videos;
   #embeddings;
+  #decisions;
   #helpers;
   #calendar;
   #projects;
@@ -6050,6 +6075,9 @@ class UnifiedAI extends Core {
   }
   get embeddings() {
     return this.#embeddings ??= new Embeddings(this);
+  }
+  get decisions() {
+    return this.#decisions ??= new Decisions(this);
   }
   get helpers() {
     return this.#helpers ??= new Helpers;
@@ -6414,9 +6442,9 @@ function createLocalSharingRuntime(opts = {}) {
   };
 }
 export {
-  createLocalSharingRuntime,
-  FakeSyncServer
+  FakeSyncServer,
+  createLocalSharingRuntime
 };
 
-//# debugId=9D5CBD22C16D9A2664756E2164756E21
+//# debugId=D20E9C2E9AD22A1364756E2164756E21
 //# sourceMappingURL=index.js.map

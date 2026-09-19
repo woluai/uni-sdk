@@ -92,6 +92,7 @@ export * from "./resources/calendar/index";
 export * from "./resources/chat";
 export * from "./resources/memory";
 export * from "./resources/embeddings";
+export * from "./resources/decisions";
 export * from "./resources/files";
 // Explicit /index: fs is a directory barrel (same dts-fixup reason as storage).
 export * from "./resources/fs/index";

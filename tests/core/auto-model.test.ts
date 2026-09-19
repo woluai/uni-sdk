@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { firstByHint, roleFor, type Model } from "../../src/index";
+import { type Model, firstByHint, roleFor } from "../../src/index";
 
 // The built-in hints behind Auto's fallback: what kind of work a request looks
 // like comes from what the user has already told us — the words, the effort
@@ -55,7 +55,10 @@ describe("firstByHint", () => {
     logo: null,
     model_author: { name: "someone" },
   });
-  const catalog = [model("anthropic-c5", "Claude Opus 5"), model("deepseek-v4-flash", "DeepSeek V4 Flash")];
+  const catalog = [
+    model("anthropic-c5", "Claude Opus 5"),
+    model("deepseek-v4-flash", "DeepSeek V4 Flash"),
+  ];
 
   test("hint order wins over catalogue order", () => {
     expect(firstByHint(catalog, ["flash", "opus"])?.id).toBe("deepseek-v4-flash");

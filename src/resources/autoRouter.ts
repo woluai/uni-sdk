@@ -1,3 +1,4 @@
+import { firstByHint, roleFor } from "./autoModel";
 // "Auto" for the multi-step lane: not one model for one turn (see
 // `autoModel.ts`) but a DISPATCHER that reads a request and picks a profile
 // (one model, one job) or a sequence (plan → work → test, across several
@@ -14,7 +15,6 @@
 // said yes once). `gate` is the one place that decision is made, so a host
 // can change its mind without touching the prompts.
 import type { Model } from "./models";
-import { firstByHint, roleFor } from "./autoModel";
 
 /** How a costlier pick is allowed to run without asking every time. */
 export type StepUpPolicy = "stay" | "ask" | "auto";
@@ -60,7 +60,10 @@ export interface AutoConfig {
 
 export type AutoDispatch = { kind: "profile" | "sequence"; id: string; why: string };
 
-export type GateDecision = { action: "run" } | { action: "ask" } | { action: "hold"; declined: AutoDispatch };
+export type GateDecision =
+  | { action: "run" }
+  | { action: "ask" }
+  | { action: "hold"; declined: AutoDispatch };
 
 export interface PlanStep {
   title: string;
@@ -107,16 +110,9 @@ function usableText(models: Model[]): Model[] {
  */
 export function defaultConfig(models: Model[]): AutoConfig {
   const text = usableText(models);
-  const everyday = firstByHint(text, [
-    "haiku",
-    "flash",
-    "mini",
-    "composer",
-    "lite",
-    "small",
-    "fast",
-    "turbo",
-  ]) ?? text[0];
+  const everyday =
+    firstByHint(text, ["haiku", "flash", "mini", "composer", "lite", "small", "fast", "turbo"]) ??
+    text[0];
   const everydayId = everyday?.id ?? null;
 
   const pick = (hints: string[]) => firstByHint(text, hints)?.id ?? everydayId;
@@ -176,7 +172,8 @@ export function defaultConfig(models: Model[]): AutoConfig {
     {
       id: "build",
       name: "Build",
-      useWhen: "Changes across several files, or anything that says implement, migrate or refactor.",
+      useWhen:
+        "Changes across several files, or anything that says implement, migrate or refactor.",
       stages: [
         { kind: "plan", profileIds: ["planner"] },
         { kind: "work", profileIds: ["executor", "fast-worker"] },
@@ -280,7 +277,12 @@ export function parseDispatch(raw: string, config: AutoConfig): AutoDispatch | n
  */
 export function fallbackDispatch(
   config: AutoConfig,
-  req: { text: string; effort?: "low" | "medium" | "high" | null; codeWork?: boolean; needsVision?: boolean },
+  req: {
+    text: string;
+    effort?: "low" | "medium" | "high" | null;
+    codeWork?: boolean;
+    needsVision?: boolean;
+  },
 ): AutoDispatch {
   const role = roleFor(req);
   const everyday: AutoDispatch = { kind: "profile", id: config.everydayId, why: "built-in hint" };
@@ -316,7 +318,11 @@ export function costsMore(pick: AutoDispatch, config: AutoConfig): boolean {
  * — `ask` wants a per-turn yes, `auto` (or a session that already said yes)
  * just runs it.
  */
-export function gate(pick: AutoDispatch, config: AutoConfig, opts?: { sessionAllowed?: boolean }): GateDecision {
+export function gate(
+  pick: AutoDispatch,
+  config: AutoConfig,
+  opts?: { sessionAllowed?: boolean },
+): GateDecision {
   if (!costsMore(pick, config)) return { action: "run" };
   if (config.stepUp === "auto" || opts?.sessionAllowed) return { action: "run" };
   if (config.stepUp === "ask") return { action: "ask" };
@@ -344,7 +350,12 @@ export function parsePlan(raw: string): PlanStep[] | null {
   const steps: PlanStep[] = [];
   for (const raw of parsed.steps) {
     const s = raw as { title?: unknown; criterion?: unknown; mechanical?: unknown };
-    if (typeof s.title !== "string" || !s.title || typeof s.criterion !== "string" || !s.criterion) {
+    if (
+      typeof s.title !== "string" ||
+      !s.title ||
+      typeof s.criterion !== "string" ||
+      !s.criterion
+    ) {
       return null;
     }
     steps.push({ title: s.title, criterion: s.criterion, mechanical: Boolean(s.mechanical) });
@@ -379,9 +390,7 @@ export function testPrompt(request: string, steps: PlanStep[], workNotes: string
     for (const note of workNotes) lines.push(`- ${note}`);
   }
   lines.push("Check every criterion. Run what you need to. Do not fix anything.");
-  lines.push(
-    `Reply with JSON only: {"results":[{"criterion":"…","pass":true,"evidence":"…"}]}`,
-  );
+  lines.push(`Reply with JSON only: {"results":[{"criterion":"…","pass":true,"evidence":"…"}]}`);
   return lines.join("\n");
 }
 

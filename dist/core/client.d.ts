@@ -4,6 +4,7 @@ import { Artifacts } from "../resources/artifacts.js";
 import { Audio } from "../resources/audio.js";
 import { Calendar } from "../resources/calendar.js";
 import { Chat } from "../resources/chat.js";
+import { Decisions } from "../resources/decisions.js";
 import { Embeddings } from "../resources/embeddings.js";
 import { Files } from "../resources/files.js";
 import { Fs } from "../resources/fs.js";
@@ -47,6 +48,7 @@ export declare class UnifiedAI extends Core {
     get audio(): Audio;
     get videos(): Videos;
     get embeddings(): Embeddings;
+    get decisions(): Decisions;
     get helpers(): Helpers;
     get calendar(): Calendar;
     /**

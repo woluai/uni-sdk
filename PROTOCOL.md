@@ -922,6 +922,39 @@ Entitlement source of truth is unified-db + base-api (`plans` joined from
 `account_type`). This repo is the client: it maps the wire error and exposes
 `isCloudPlan(plan)` / `PLAN_FREE_ID` for UX preflight via `sdk.usage.get()`.
 
+## Decisions
+
+Batched decision evaluation against Jev (TypeSafe). `state` is a text-only
+snapshot of context — no images — and every question in one call is evaluated
+in parallel, so callers batch a round of questions rather than looping calls.
+
+```json
+// Question — request
+{
+  "type": "choice | score | noul",
+  "instructions": "string",
+  "criteria": {} // choice: Record<string,string> options; score: string[]; noul: omitted
+}
+```
+
+```json
+// Answer — response
+{
+  "type": "choice | score | noul",
+  "choice": "string",             // choice only
+  "score": 0,                     // score only
+  "noul": 0,                      // noul only
+  "probabilities": {},            // optional
+  "legend": {},                   // optional
+  "confidence": 0                 // 0..1; derived as |noul − 0.5| × 2 when Jev omits it (noul)
+}
+```
+
+```
+POST /api/v1/decisions   Body: { state, questions: { [key]: Question }, model? }
+                         → { model, answers: { [key]: Answer }, usage: { input_tokens, output_tokens } }
+```
+
 ## Error codes
 
 SDKs surface these as typed errors. Names normative; messages free-form.
@@ -1002,3 +1035,15 @@ Ecosystem API (returned by both hostings; HTTP status in parentheses):
   reply arrived within the per-request deadline.
 - `internal` (500) — an unclassified handler error; the message is diagnostic
   only and MUST NOT be branched on.
+
+Decisions API (HTTP status in parentheses):
+
+- `decision_unavailable` (503) — `TYPESAFE_API_KEY` is not configured server-side.
+- `decision_invalid_request` (400) — question count outside `1..64`, a `choice`
+  question with more than 255 criteria keys, or Jev rejected the request body.
+- `decision_rate_limited` (429) — Jev rate-limited the upstream call.
+- `decision_timeout` (504) — the upstream call did not complete within the
+  server's deadline.
+- `decision_upstream_error` (502) — any other Jev failure, including a
+  rejected API key (401/403) — a rejected key is server misconfiguration,
+  never the caller's fault.
