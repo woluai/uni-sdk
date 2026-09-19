@@ -280,8 +280,5 @@ declare module "@unified/host-api" {
   export function pickLocalFolder(): Promise<LocalFolderListing | null>;
 
   /** Bounded read of relative paths from a folder picked this session. */
-  export function readLocalFolderFiles(
-    token: string,
-    paths: string[],
-  ): Promise<LocalFolderFile[]>;
+  export function readLocalFolderFiles(token: string, paths: string[]): Promise<LocalFolderFile[]>;
 }

@@ -22,6 +22,7 @@ export * from "./resources/calendar/index.js";
 export * from "./resources/chat.js";
 export * from "./resources/memory.js";
 export * from "./resources/embeddings.js";
+export * from "./resources/decisions.js";
 export * from "./resources/files.js";
 export * from "./resources/fs/index.js";
 export * from "./resources/helpers.js";

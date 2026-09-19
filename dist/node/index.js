@@ -3124,6 +3124,32 @@ class Embeddings {
     };
   }
 }
+// src/resources/decisions.ts
+class Decisions {
+  client;
+  constructor(client) {
+    this.client = client;
+  }
+  async decide(state, questions, options = {}) {
+    const req = {
+      method: "POST",
+      idempotent: true,
+      body: { state, questions, ...options.model ? { model: options.model } : {} }
+    };
+    if (options.signal)
+      req.signal = options.signal;
+    const res = await this.client.request("/api/v1/decisions", req);
+    for (const a of Object.values(res.answers ?? {})) {
+      if (typeof a.confidence !== "number") {
+        a.confidence = typeof a.noul === "number" ? Math.abs(a.noul - 0.5) * 2 : 0;
+      }
+    }
+    return res;
+  }
+}
+function confident(answer, threshold = 0.8) {
+  return !!answer && answer.confidence >= threshold;
+}
 // src/core/_internal/progress.ts
 function safeEmit(listener, loaded, total) {
   if (!listener)
@@ -4439,16 +4465,7 @@ function usableText(models) {
 }
 function defaultConfig(models) {
   const text = usableText(models);
-  const everyday = firstByHint(text, [
-    "haiku",
-    "flash",
-    "mini",
-    "composer",
-    "lite",
-    "small",
-    "fast",
-    "turbo"
-  ]) ?? text[0];
+  const everyday = firstByHint(text, ["haiku", "flash", "mini", "composer", "lite", "small", "fast", "turbo"]) ?? text[0];
   const everydayId = everyday?.id ?? null;
   const pick = (hints) => firstByHint(text, hints)?.id ?? everydayId;
   const vision = models.find((m) => m.type === "text" && m.image_inp);
@@ -9305,6 +9322,7 @@ class UnifiedAI extends Core {
   #audio;
   #videos;
   #embeddings;
+  #decisions;
   #helpers;
   #calendar;
   #projects;
@@ -9348,6 +9366,9 @@ class UnifiedAI extends Core {
   }
   get embeddings() {
     return this.#embeddings ??= new Embeddings(this);
+  }
+  get decisions() {
+    return this.#decisions ??= new Decisions(this);
   }
   get helpers() {
     return this.#helpers ??= new Helpers;
@@ -10604,6 +10625,7 @@ export {
   connectRelayHost,
   connectDesktop,
   configureLocalAgents,
+  confident,
   closeRelayHost,
   closeAllRelayHosts,
   clientDeviceName,
@@ -10670,6 +10692,7 @@ export {
   Files,
   Embeddings,
   DeprecatedModelError,
+  Decisions,
   Core,
   CloudStorageBackend,
   CloudFsBackend,
@@ -10689,5 +10712,5 @@ export {
   Actions
 };
 
-//# debugId=36E42679270C0E1364756E2164756E21
+//# debugId=0258797E36C9B58264756E2164756E21
 //# sourceMappingURL=index.js.map
