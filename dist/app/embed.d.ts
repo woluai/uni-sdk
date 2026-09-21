@@ -4,6 +4,12 @@ export interface EmbedInit {
     payload: unknown;
     theme: Theme;
     /**
+     * Computed host CSS variables (`--text`, `--bg-glass`, …). Optional: a plugin
+     * that wants its own look can ignore them. Posted so a sandboxed page can
+     * match the shell without running in the host origin.
+     */
+    tokens?: Record<string, string> | undefined;
+    /**
      * The host has given this frame a FIXED box (it is docked in the artifact
      * side panel) rather than sizing the frame to whatever height the embed asks
      * for. Two consequences for the embed:
@@ -18,8 +24,48 @@ export interface EmbedInit {
      */
     fill: boolean;
 }
+/** A host refusal or timeout, with the protocol error code intact. */
+export declare class EmbedError extends Error {
+    readonly code?: string;
+    constructor(message: string, code?: string);
+}
 /** Ask the host to run one of THIS app's declared, non-mutating actions. */
 export declare function call<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
+export interface EmbedFetchOptions {
+    method?: "GET" | "POST" | "HEAD";
+    headers?: Record<string, string>;
+    body?: string | null;
+    /** Host cache lifetime in seconds, capped at one hour. Omit to disable caching. */
+    maxAge?: number;
+}
+export interface EmbedFetchResponse {
+    status: number;
+    body: string;
+    /** Seconds since the host fetched this response; zero for a fresh response. */
+    age: number;
+}
+/** Fetch through the desktop host's declared-origin allowlist and user consent.
+ *  HTTP errors resolve with their status; host refusals reject with EmbedError. */
+export declare function hostFetch(url: string, options?: EmbedFetchOptions): Promise<EmbedFetchResponse>;
+/** Set the header badge. The host trims to 8 characters; an empty string clears it. */
+export declare function badge(text: string): void;
+export interface EmbedWidgetValue {
+    /** Text drawn by the host, capped at 6 characters. */
+    text: string;
+    level?: "calm" | "warn" | "alarm";
+    /** Hover text, capped at 80 characters. */
+    title?: string;
+}
+export interface EmbedWidgetItem {
+    /** Key from surfaces.header.icons; unknown keys use the app's own icon. */
+    icon?: string;
+    /** Accessible label, capped at 40 characters. */
+    label?: string;
+    /** The host displays at most two values per item. */
+    values: EmbedWidgetValue[];
+}
+/** Describe up to four header items for the host to draw. An empty array clears them. */
+export declare function widget(items: EmbedWidgetItem[]): void;
 /** Tell the host how tall this preview wants to be. Host clamps to its own max. */
 /**
  * Ask the host to size the frame to `height`. Ignored when `EmbedInit.fill` is
@@ -55,7 +101,7 @@ export interface EmbedReference {
  *  frame never names its app — the host stamps that from the frame's identity. */
 export declare function reference(ref: EmbedReference): void;
 export declare function onInit(cb: (init: EmbedInit) => void): void;
-export declare function onTheme(cb: (theme: Theme) => void): void;
+export declare function onTheme(cb: (theme: Theme, tokens?: Record<string, string>) => void): void;
 /** The host toggled one of this app's `preview.tools` buttons; set that tool's state. */
 export declare function onTool(cb: (id: string, active: boolean) => void): void;
 /** Report a state change this embed made to itself (e.g. it disarmed after use)

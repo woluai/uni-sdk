@@ -631,6 +631,62 @@ Handlers are registered from the module scope of `module` through the host
 bridge's `registerActions` — the host attributes them to the loaded app's id,
 never to a self-reported one.
 
+#### Sandboxed panels and header widgets
+
+A desktop plugin may declare a panel without an in-process `module`:
+
+```json
+{
+  "id": "usage-dashboard",
+  "name": "Usage dashboard",
+  "version": "1.0.0",
+  "kind": "web",
+  "surfaces": {
+    "header": { "icon": "gauge", "title": "Usage", "opens": "popover", "badge": true },
+    "panel": { "embed": "embed/index.html", "title": "Usage" }
+  },
+  "permissions": { "net": ["https://usage.example.com"] }
+}
+```
+
+Bundle `@unifiedai/sdk/app/embed` into the panel page. It runs in an
+opaque-origin sandbox and talks only to its parent via messages marked
+`__unifiedEmbed: true`. Register `onInit` and `onTheme` before calling `ready()`.
+Both callbacks receive the host's theme; `onInit` also receives `payload`,
+`fill`, and optional CSS `tokens`, while `onTheme` receives tokens as its
+optional second argument. `fill` means the host owns the frame size.
+
+The SDK exposes these existing desktop verbs:
+
+| Helper | Request | Result |
+| --- | --- | --- |
+| `hostFetch(url, options?)` | `t: "fetch"`, `id`, `url`, optional `method`, `headers`, `body`, `maxAge` | `{ status, body, age }` |
+| `badge(text)` | `t: "badge"`, `text` | No reply; host trims to 8 characters. |
+| `widget(items)` | `t: "widget"`, `items` | No reply; empty array clears the widget. |
+
+`hostFetch` defaults to GET; the host supports GET, POST, and HEAD. The URL's
+HTTPS origin must be declared in `permissions.net`, and the user must grant
+network access. A hidden `?surface=badge` frame never prompts: the visible
+panel obtains consent first. SDK requests time out after 60 seconds to allow
+for consent; timeout stops waiting, not an already dispatched HTTP request.
+HTTP errors resolve with their status and body. Host failures reject with
+`EmbedError`, preserving `code` (for example `E_DENIED`); an SDK timeout uses
+`timeout`. Hosts without the network broker report an error.
+
+`maxAge` opts into host caching in **seconds**, capped at one hour. The host
+shares cached results and concurrent requests across frames of the same app,
+keyed by method, URL, headers, and body. HTTP error responses are cached too;
+transport failures are not. `age` is whole seconds since fetching the result.
+Caching is off when `maxAge` is omitted; only opt in for requests safe to reuse.
+
+A widget item has optional `icon` and `label`, and a `values` array of
+`{ text, level?, title? }`. Levels are `calm`, `warn`, or `alarm`. The host
+renders plain text and applies these caps: 4 items, 2 values per item, 6
+characters per value, 80 per title, and 40 per label. `icon` names a key in
+`surfaces.header.icons` (bundle-relative SVG/PNG assets); an unknown key uses
+the app's glyph. A widget takes precedence over the simple badge. Permission
+checks, cache isolation, and widget sanitization remain the host's responsibility.
+
 #### Search provider load contract
 
 When `manifest.search.entry` is present, the host dynamically imports that

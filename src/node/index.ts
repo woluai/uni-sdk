@@ -102,6 +102,7 @@ export * from "../resources/sharing";
 // Explicit /index: sync is a directory barrel (see src/index.ts note).
 export * from "../resources/sync/index";
 export * from "../resources/usage";
+export * from "../resources/usage-analytics";
 export * from "../resources/users";
 export * from "../resources/videos";
 // Explicit /index: localAgents is a directory barrel (see src/index.ts note).

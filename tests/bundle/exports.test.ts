@@ -47,6 +47,20 @@ describe("package.json exports resolve from committed dist/", () => {
     expect(typeof logos.getProviderLogo).toBe("function");
   });
 
+  test("browser, node, and app bundles expose usage analytics", async () => {
+    for (const entry of ["index.browser.js", "node/index.js", "app/index.js"]) {
+      const sdk = await import(join(ROOT, "dist", entry));
+      expect(sdk.calculateUsagePace(
+        { used: 25, limit: 100, startsAt: 0, resetsAt: 240_000 },
+        { now: 120_000 },
+      )).toMatchObject({ status: "ahead", projectedUsed: 50 });
+      expect(sdk.aggregateUsageHistory([], { now: 120_000, days: 1 })).toMatchObject({
+        tokens: 0,
+        days: [{ tokens: 0 }],
+      });
+    }
+  });
+
   test("file: install without lifecycle scripts resolves documented subpaths", () => {
     const staged = mkdtempSync(join(tmpdir(), "uni-sdk-pkg-"));
     const consumer = mkdtempSync(join(tmpdir(), "uni-sdk-consumer-"));

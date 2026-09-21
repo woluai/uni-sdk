@@ -35,6 +35,7 @@ export * from "../resources/storage/index.js";
 export * from "../resources/sharing.js";
 export * from "../resources/sync/index.js";
 export * from "../resources/usage.js";
+export * from "../resources/usage-analytics.js";
 export * from "../resources/users.js";
 export * from "../resources/videos.js";
 export * from "../localAgents/index.js";

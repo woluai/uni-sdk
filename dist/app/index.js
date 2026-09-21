@@ -161,28 +161,104 @@ var HOST_LIMITS = {
   PREVIEW_MAX_BYTES: 2048,
   PER_PROVIDER_TIMEOUT_MS: 1500
 };
+// src/resources/usage-analytics.ts
+function isTimestamp(value) {
+  return typeof value === "number" && Number.isFinite(new Date(value).getTime());
+}
+function calculateUsagePace(window, { now = Date.now() } = {}) {
+  const { used, limit, startsAt, resetsAt } = window;
+  if (used === null || !Number.isFinite(used) || used < 0 || limit === null || !Number.isFinite(limit) || limit <= 0 || !isTimestamp(startsAt) || !isTimestamp(resetsAt) || !isTimestamp(now) || resetsAt <= startsAt || now < startsAt || now >= resetsAt)
+    return null;
+  const duration = resetsAt - startsAt;
+  const elapsed = now - startsAt;
+  const elapsedRatio = elapsed / duration;
+  const sampled = elapsed >= Math.max(60000, duration * 0.01);
+  const projectedUsed = sampled ? used / elapsedRatio : null;
+  if (used >= limit) {
+    return {
+      status: "exhausted",
+      elapsedRatio,
+      projectedUsed: Number.isFinite(projectedUsed) ? projectedUsed : null,
+      exhaustsAt: now
+    };
+  }
+  if (projectedUsed === null || !Number.isFinite(projectedUsed))
+    return null;
+  const status = projectedUsed <= limit * 0.9 ? "ahead" : projectedUsed <= limit ? "on-track" : "over-pace";
+  const exhaustsAt = status === "over-pace" ? now + (limit - used) / used * elapsed : null;
+  if (exhaustsAt !== null && !isTimestamp(exhaustsAt))
+    return null;
+  return { status, elapsedRatio, projectedUsed, exhaustsAt };
+}
+function aggregateUsageHistory(rows, { now = Date.now(), days = 7 } = {}) {
+  if (!isTimestamp(now) || !Number.isInteger(days) || days < 1 || days > 366) {
+    throw new RangeError("Expected a valid timestamp and 1–366 calendar days");
+  }
+  if (rows == null)
+    return null;
+  const history = { days: [], tokens: 0, byModel: Object.create(null) };
+  const buckets = new Map;
+  for (let offset = days - 1;offset >= 0; offset--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - offset);
+    date.setHours(0, 0, 0, 0);
+    const startsAt = date.getTime();
+    if (!isTimestamp(startsAt))
+      throw new RangeError("Calendar day is outside the date range");
+    const year = date.getFullYear();
+    const yearLabel = year >= 0 && year <= 9999 ? String(year).padStart(4, "0") : `${year < 0 ? "-" : "+"}${String(Math.abs(year)).padStart(6, "0")}`;
+    const day = {
+      date: `${yearLabel}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+      startsAt,
+      tokens: 0,
+      byModel: Object.create(null)
+    };
+    history.days.push(day);
+    buckets.set(startsAt, day);
+  }
+  for (const row of rows) {
+    if (!row || !isTimestamp(row.timestamp) || !Number.isFinite(row.tokens) || row.tokens < 0 || typeof row.model !== "string" || row.model.length === 0)
+      throw new TypeError("Expected a valid timestamp, model name, and nonnegative token count");
+    if (row.timestamp > now)
+      continue;
+    const date = new Date(row.timestamp);
+    date.setHours(0, 0, 0, 0);
+    const day = buckets.get(date.getTime());
+    if (!day)
+      continue;
+    history.tokens += row.tokens;
+    if (!Number.isFinite(history.tokens))
+      throw new RangeError("Usage token total overflow");
+    day.tokens += row.tokens;
+    day.byModel[row.model] = (day.byModel[row.model] ?? 0) + row.tokens;
+    history.byModel[row.model] = (history.byModel[row.model] ?? 0) + row.tokens;
+  }
+  return history;
+}
 export {
-  HINTS_FLOOR,
-  HOST_LIMITS,
-  PREVIEW_MAX,
-  SEARCH_PROTOCOL_VERSION,
-  SEARCH_TEXT_MAX,
-  clampWithEllipsis,
-  compareHits,
-  createLatchedFallback,
-  escapeHtml,
-  isHinted,
-  makeOpenArtifactAdapter,
-  matchKind,
-  notFound,
-  queryBySearchText,
-  requiredParam,
-  safeRegisterActions,
-  scoreFields,
-  storageUnavailable,
+  truncateOnWord,
   toSearchHit,
-  truncateOnWord
+  storageUnavailable,
+  scoreFields,
+  safeRegisterActions,
+  requiredParam,
+  queryBySearchText,
+  notFound,
+  matchKind,
+  makeOpenArtifactAdapter,
+  isHinted,
+  escapeHtml,
+  createLatchedFallback,
+  compareHits,
+  clampWithEllipsis,
+  calculateUsagePace,
+  aggregateUsageHistory,
+  SEARCH_TEXT_MAX,
+  SEARCH_PROTOCOL_VERSION,
+  PREVIEW_MAX,
+  HOST_LIMITS,
+  HINTS_FLOOR
 };
 
-//# debugId=83BCFD2F4A5C6F3564756E2164756E21
+//# debugId=028798E274E29F0164756E2164756E21
 //# sourceMappingURL=index.js.map

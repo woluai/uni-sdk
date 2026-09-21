@@ -6739,6 +6739,80 @@ function summarizeUsage(usage, options = {}) {
     }
   };
 }
+// src/resources/usage-analytics.ts
+function isTimestamp(value) {
+  return typeof value === "number" && Number.isFinite(new Date(value).getTime());
+}
+function calculateUsagePace(window, { now = Date.now() } = {}) {
+  const { used, limit, startsAt, resetsAt } = window;
+  if (used === null || !Number.isFinite(used) || used < 0 || limit === null || !Number.isFinite(limit) || limit <= 0 || !isTimestamp(startsAt) || !isTimestamp(resetsAt) || !isTimestamp(now) || resetsAt <= startsAt || now < startsAt || now >= resetsAt)
+    return null;
+  const duration = resetsAt - startsAt;
+  const elapsed = now - startsAt;
+  const elapsedRatio = elapsed / duration;
+  const sampled = elapsed >= Math.max(60000, duration * 0.01);
+  const projectedUsed = sampled ? used / elapsedRatio : null;
+  if (used >= limit) {
+    return {
+      status: "exhausted",
+      elapsedRatio,
+      projectedUsed: Number.isFinite(projectedUsed) ? projectedUsed : null,
+      exhaustsAt: now
+    };
+  }
+  if (projectedUsed === null || !Number.isFinite(projectedUsed))
+    return null;
+  const status = projectedUsed <= limit * 0.9 ? "ahead" : projectedUsed <= limit ? "on-track" : "over-pace";
+  const exhaustsAt = status === "over-pace" ? now + (limit - used) / used * elapsed : null;
+  if (exhaustsAt !== null && !isTimestamp(exhaustsAt))
+    return null;
+  return { status, elapsedRatio, projectedUsed, exhaustsAt };
+}
+function aggregateUsageHistory(rows, { now = Date.now(), days = 7 } = {}) {
+  if (!isTimestamp(now) || !Number.isInteger(days) || days < 1 || days > 366) {
+    throw new RangeError("Expected a valid timestamp and 1–366 calendar days");
+  }
+  if (rows == null)
+    return null;
+  const history = { days: [], tokens: 0, byModel: Object.create(null) };
+  const buckets = new Map;
+  for (let offset = days - 1;offset >= 0; offset--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - offset);
+    date.setHours(0, 0, 0, 0);
+    const startsAt = date.getTime();
+    if (!isTimestamp(startsAt))
+      throw new RangeError("Calendar day is outside the date range");
+    const year = date.getFullYear();
+    const yearLabel = year >= 0 && year <= 9999 ? String(year).padStart(4, "0") : `${year < 0 ? "-" : "+"}${String(Math.abs(year)).padStart(6, "0")}`;
+    const day = {
+      date: `${yearLabel}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+      startsAt,
+      tokens: 0,
+      byModel: Object.create(null)
+    };
+    history.days.push(day);
+    buckets.set(startsAt, day);
+  }
+  for (const row of rows) {
+    if (!row || !isTimestamp(row.timestamp) || !Number.isFinite(row.tokens) || row.tokens < 0 || typeof row.model !== "string" || row.model.length === 0)
+      throw new TypeError("Expected a valid timestamp, model name, and nonnegative token count");
+    if (row.timestamp > now)
+      continue;
+    const date = new Date(row.timestamp);
+    date.setHours(0, 0, 0, 0);
+    const day = buckets.get(date.getTime());
+    if (!day)
+      continue;
+    history.tokens += row.tokens;
+    if (!Number.isFinite(history.tokens))
+      throw new RangeError("Usage token total overflow");
+    day.tokens += row.tokens;
+    day.byModel[row.model] = (day.byModel[row.model] ?? 0) + row.tokens;
+    history.byModel[row.model] = (history.byModel[row.model] ?? 0) + row.tokens;
+  }
+  return history;
+}
 // src/resources/users.ts
 var MAX_LIST_IDS = 100;
 
@@ -9871,6 +9945,19 @@ function createDefaultKeychain() {
   };
 }
 
+class InMemoryKeychain {
+  store = new Map;
+  async get(clientId) {
+    return this.store.get(clientId) ?? null;
+  }
+  async set(clientId, tokens2) {
+    this.store.set(clientId, tokens2);
+  }
+  async clear(clientId) {
+    this.store.delete(clientId);
+  }
+}
+
 // src/node/_internal/loopback.ts
 import { createServer } from "node:http";
 var DEFAULT_SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -10495,209 +10582,211 @@ async function discoverLocalEcosystem(opts = {}) {
   }
 }
 export {
-  Actions,
-  Agent,
-  Artifacts,
-  Audio,
-  AuthenticationError,
-  BRIDGE_PORTS,
-  BadRequestError,
-  CALENDARS_COLLECTION,
-  CALENDAR_NS,
-  CLAUDE_CODE_MODEL_PREFIX,
-  CURSOR_MODEL_PREFIX,
-  Calendar,
-  Chat,
-  ChatCompletions,
-  CloudFsBackend,
-  CloudStorageBackend,
-  Core,
-  Decisions,
-  DeprecatedModelError,
-  Embeddings,
-  Files,
-  ForbiddenError,
-  Fs,
-  Helpers,
-  ITEMS_COLLECTION,
-  Images,
-  Memory,
-  MemoryBackend,
-  MemoryGrantStore,
-  MessageStream,
-  Messages,
-  Models,
-  NamespaceSharing,
-  NotFoundError,
-  OPEN_ARTIFACT_ACTION,
-  OPEN_ARTIFACT_PARAMS_SCHEMA,
-  OPEN_ARTIFACT_SPEC,
-  PLAN_FREE_ID,
-  PlanRequiredError,
-  Projects,
-  RateLimitError,
-  References,
-  Responses,
-  ServerError,
-  Session,
-  Storage,
-  StreamInterruptedError,
-  Sync,
-  UnifiedAI2 as UnifiedAI,
-  UnifiedAIAuthError,
-  UnifiedAIError,
-  UnifiedError,
-  UnifiedStream,
-  Usage,
-  UsageLimitError,
-  Users,
-  Videos,
-  WorkspaceSync,
-  _resetLocalAgentState,
-  addDaysInZone,
-  addExdateOp,
-  addMonthsInZone,
-  artifactRefFromHit,
-  artifactRefFromLink,
-  bearerSubprotocol,
-  bridgeCursorModels,
-  bridgeDetect,
-  bridgeHealth,
-  bridgeListDir,
-  bridgeMcpResult,
-  bridgeOrigin,
-  bridgePickFolder,
-  bridgeStartRun,
-  bridgeStopRun,
-  bridgeToken,
-  buildHttpError,
-  calendarToMetadata,
-  checkDesktopAvailable,
-  claudeCodeModelName,
-  clearBridgeToken,
-  clientDeviceId,
-  clientDeviceName,
-  closeAllRelayHosts,
-  closeRelayHost,
-  confident,
-  configureLocalAgents,
-  connectDesktop,
-  connectRelayHost,
-  costsMore,
-  createCalendarOp,
-  createItemOp,
-  dayRange,
-  decodeSnapshot,
-  defaultConfig,
-  defaultEcosystemDiscoveryPath,
-  defaultPairName,
-  defaultTiming,
-  deleteCalendarOp,
-  deleteItemOp,
-  detectAgents,
-  disconnectDesktop,
-  discoverBridge,
-  discoverLocalEcosystem,
-  dispatchFrame,
-  dispatchPrompt,
-  encodeSnapshot2 as encodeSnapshot,
-  expandOccurrences,
-  extractServerMessage,
-  fallbackDispatch,
-  firstByHint,
-  formatBody,
-  formatTimeUntil,
-  formatTokenCount,
-  formatUsd,
-  fsError,
-  fsTools,
-  gate,
-  getLocalAgentStatus,
-  getTimeZoneOffsetMs,
-  hasBridgeToken,
-  httpErrorCodeFromStatus,
-  httpErrorMessage,
-  invalidateBridgePort,
-  invalidateCursorModels,
-  isCloudPlan,
-  isDesktopConnected,
-  isEpochMismatch,
-  isLocalAgentModel,
-  isPlanRequiredBody,
-  isResolvableArtifactRef,
-  isSameDayInZone,
-  itemToMetadata,
-  laneForModel,
-  listLocalAgentDevices,
-  listLocalAgentDir,
-  listLocalModels,
-  listRelayHosts,
-  localAgentsConfig,
-  monthGrid,
-  namespaceAccess,
-  newId,
-  normalizeDirListing,
-  normalizeNs,
-  normalizePrefix,
-  normalizeRelPath,
-  notGrantedError,
-  onLocalAgentStatusChange,
-  openRunEvents,
-  pairBridge,
-  parseCalendar,
-  parseCalendarItem,
-  parseDispatch,
-  parsePlan,
-  parseSSE,
-  parseTestReport,
-  pickWorker,
-  pickWorkspaceFolder,
-  placeholderLocalModel,
-  planPrompt,
-  planRequiredError,
-  profileById,
-  refreshLocalAgentDevices,
-  refreshLocalAgents,
-  refreshRelayHosts,
-  relayWsUrl,
-  resolveLocalAgentSource,
-  resolveSourceFor,
-  roleFor,
-  runBrowserPkce,
-  runLocalAgent,
-  sequenceById,
-  setLocalAgentSource,
-  setOverrideOp,
-  signInWithBrowser,
-  startOfDayInZone,
-  startOfMonthInZone,
-  startOfWeekInZone,
-  stepPrompt,
-  storageAbortError,
-  storageError,
-  storageTools,
-  summarizeUsage,
-  syncError,
-  syncTools,
-  testPrompt,
-  toChatAudioPart,
-  toChatFilePart,
-  toChatImagePart,
-  toChatVideoPart,
-  toMessagesDocumentPart,
-  toMessagesImagePart,
-  toOpenArtifactParams,
-  toResponsesAudioPart,
-  toResponsesFilePart,
-  toResponsesImagePart,
-  toResponsesVideoPart,
-  updateCalendarOp,
-  updateItemOp,
-  utcToZonedFields,
-  webTools,
+  zonedFieldsToUtc,
   weekRange,
-  zonedFieldsToUtc
+  webTools,
+  utcToZonedFields,
+  updateItemOp,
+  updateCalendarOp,
+  toResponsesVideoPart,
+  toResponsesImagePart,
+  toResponsesFilePart,
+  toResponsesAudioPart,
+  toOpenArtifactParams,
+  toMessagesImagePart,
+  toMessagesDocumentPart,
+  toChatVideoPart,
+  toChatImagePart,
+  toChatFilePart,
+  toChatAudioPart,
+  testPrompt,
+  syncTools,
+  syncError,
+  summarizeUsage,
+  storageTools,
+  storageError,
+  storageAbortError,
+  stepPrompt,
+  startOfWeekInZone,
+  startOfMonthInZone,
+  startOfDayInZone,
+  signInWithBrowser,
+  setOverrideOp,
+  setLocalAgentSource,
+  sequenceById,
+  runLocalAgent,
+  runBrowserPkce,
+  roleFor,
+  resolveSourceFor,
+  resolveLocalAgentSource,
+  relayWsUrl,
+  refreshRelayHosts,
+  refreshLocalAgents,
+  refreshLocalAgentDevices,
+  profileById,
+  planRequiredError,
+  planPrompt,
+  placeholderLocalModel,
+  pickWorkspaceFolder,
+  pickWorker,
+  parseTestReport,
+  parseSSE,
+  parsePlan,
+  parseDispatch,
+  parseCalendarItem,
+  parseCalendar,
+  pairBridge,
+  openRunEvents,
+  onLocalAgentStatusChange,
+  notGrantedError,
+  normalizeRelPath,
+  normalizePrefix,
+  normalizeNs,
+  normalizeDirListing,
+  newId,
+  namespaceAccess,
+  monthGrid,
+  localAgentsConfig,
+  listRelayHosts,
+  listLocalModels,
+  listLocalAgentDir,
+  listLocalAgentDevices,
+  laneForModel,
+  itemToMetadata,
+  isSameDayInZone,
+  isResolvableArtifactRef,
+  isPlanRequiredBody,
+  isLocalAgentModel,
+  isEpochMismatch,
+  isDesktopConnected,
+  isCloudPlan,
+  invalidateCursorModels,
+  invalidateBridgePort,
+  httpErrorMessage,
+  httpErrorCodeFromStatus,
+  hasBridgeToken,
+  getTimeZoneOffsetMs,
+  getLocalAgentStatus,
+  gate,
+  fsTools,
+  fsError,
+  formatUsd,
+  formatTokenCount,
+  formatTimeUntil,
+  formatBody,
+  firstByHint,
+  fallbackDispatch,
+  extractServerMessage,
+  expandOccurrences,
+  encodeSnapshot2 as encodeSnapshot,
+  dispatchPrompt,
+  dispatchFrame,
+  discoverLocalEcosystem,
+  discoverBridge,
+  disconnectDesktop,
+  detectAgents,
+  deleteItemOp,
+  deleteCalendarOp,
+  defaultTiming,
+  defaultPairName,
+  defaultEcosystemDiscoveryPath,
+  defaultConfig,
+  decodeSnapshot,
+  dayRange,
+  createItemOp,
+  createCalendarOp,
+  costsMore,
+  connectRelayHost,
+  connectDesktop,
+  configureLocalAgents,
+  confident,
+  closeRelayHost,
+  closeAllRelayHosts,
+  clientDeviceName,
+  clientDeviceId,
+  clearBridgeToken,
+  claudeCodeModelName,
+  checkDesktopAvailable,
+  calendarToMetadata,
+  calculateUsagePace,
+  buildHttpError,
+  bridgeToken,
+  bridgeStopRun,
+  bridgeStartRun,
+  bridgePickFolder,
+  bridgeOrigin,
+  bridgeMcpResult,
+  bridgeListDir,
+  bridgeHealth,
+  bridgeDetect,
+  bridgeCursorModels,
+  bearerSubprotocol,
+  artifactRefFromLink,
+  artifactRefFromHit,
+  aggregateUsageHistory,
+  addMonthsInZone,
+  addExdateOp,
+  addDaysInZone,
+  _resetLocalAgentState,
+  WorkspaceSync,
+  Videos,
+  Users,
+  UsageLimitError,
+  Usage,
+  UnifiedStream,
+  UnifiedError,
+  UnifiedAIError,
+  UnifiedAIAuthError,
+  UnifiedAI2 as UnifiedAI,
+  Sync,
+  StreamInterruptedError,
+  Storage,
+  Session,
+  ServerError,
+  Responses,
+  References,
+  RateLimitError,
+  Projects,
+  PlanRequiredError,
+  PLAN_FREE_ID,
+  OPEN_ARTIFACT_SPEC,
+  OPEN_ARTIFACT_PARAMS_SCHEMA,
+  OPEN_ARTIFACT_ACTION,
+  NotFoundError,
+  NamespaceSharing,
+  Models,
+  Messages,
+  MessageStream,
+  MemoryGrantStore,
+  MemoryBackend,
+  Memory,
+  Images,
+  ITEMS_COLLECTION,
+  Helpers,
+  Fs,
+  ForbiddenError,
+  Files,
+  Embeddings,
+  DeprecatedModelError,
+  Decisions,
+  Core,
+  CloudStorageBackend,
+  CloudFsBackend,
+  ChatCompletions,
+  Chat,
+  Calendar,
+  CURSOR_MODEL_PREFIX,
+  CLAUDE_CODE_MODEL_PREFIX,
+  CALENDAR_NS,
+  CALENDARS_COLLECTION,
+  BadRequestError,
+  BRIDGE_PORTS,
+  AuthenticationError,
+  Audio,
+  Artifacts,
+  Agent,
+  Actions
 };
 
-//# debugId=575A0218F9A7020464756E2164756E21
+//# debugId=CC452161C6D655A164756E2164756E21
 //# sourceMappingURL=index.js.map

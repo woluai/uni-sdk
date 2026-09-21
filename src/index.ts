@@ -120,6 +120,7 @@ export * from "./resources/sharing";
 // Explicit /index: sync is a directory barrel (same dts-fixup reason as storage).
 export * from "./resources/sync/index";
 export * from "./resources/usage";
+export * from "./resources/usage-analytics";
 export * from "./resources/users";
 export * from "./resources/videos";
 // Logo helpers (getProviderLogo, etc.) live behind "@unifiedai/sdk/logos" —

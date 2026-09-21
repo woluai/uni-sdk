@@ -122,6 +122,88 @@ reference({ id: "doc-1#p=3", label: "Paragraph 3", artifactType: "doc-paragraph"
 ready(); // call last — the host replies with `init`
 ```
 
+For a usage dashboard, the SDK also provides pure quota pacing and history
+aggregation. Import them from the root, `/node`, or the small `/app` entry:
+
+```ts
+import { calculateUsagePace, aggregateUsageHistory } from "@unifiedai/sdk/app";
+
+const now = Date.now();
+// Values from your own service, in matching units; boundaries are epoch ms.
+const pace = calculateUsagePace({
+  used: 60, limit: 100,
+  startsAt: now - 30 * 60_000,
+  resetsAt: now + 30 * 60_000,
+}, { now });
+// pace.status === "over-pace", projectedUsed === 120,
+// exhaustsAt is 20 minutes from now.
+
+const history = aggregateUsageHistory([
+  { timestamp: now, model: "my-model", tokens: 1200 },
+], { now, days: 7 });
+const sparkline = history?.days.map(day => day.byModel["my-model"] ?? 0);
+```
+
+Use actual quota start/reset boundaries, including calendar-month boundaries.
+Pace returns `null` for unavailable/expired windows or insufficient elapsed
+sampling time; exhausted quotas are reported immediately. Projections remain
+uncapped. History uses local calendar days, pads absent dates with zero, and
+keeps model names as supplied. `null`/`undefined` rows mean unavailable;
+`[]` means known zero usage. Invalid rows throw. Combine independent normalized
+events before aggregation; overlapping datasets will double-count. These
+helpers do not collect provider credentials or read other apps' usage data.
+
+For a sandboxed panel, use the existing host network broker and header chrome:
+
+```ts
+import { EmbedError, hostFetch, onInit, onTheme, ready, widget } from "@unifiedai/sdk/app/embed";
+
+function applyTheme(theme: string, tokens?: Record<string, string>) {
+  document.documentElement.dataset.theme = theme;
+  for (const [key, value] of Object.entries(tokens ?? {})) {
+    document.documentElement.style.setProperty(key, value);
+  }
+}
+onTheme(applyTheme);
+onInit(({ theme, tokens }) => {
+  applyTheme(theme, tokens);
+  void refresh();
+});
+async function refresh() {
+  try {
+    // Replace this with an endpoint you operate or are authorized to use.
+    const response = await hostFetch("https://usage.example.com/summary", { maxAge: 60 });
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    // Validate response.body against your service's schema before rendering.
+    widget([{ label: "Usage service", values: [{ text: "Ready", title: `Cached ${response.age}s ago` }] }]);
+  } catch (error) {
+    widget([]);
+    if (new URLSearchParams(location.search).get("surface") !== "badge") {
+      const status = document.querySelector("[role=status]");
+      if (status) status.textContent = error instanceof EmbedError && error.code === "E_DENIED"
+        ? "Open the panel and allow network access to load usage."
+        : "Usage is unavailable.";
+    }
+  }
+}
+ready();
+```
+
+Bundle this code into your embed HTML and include a `<p role="status"></p>`
+for errors. Declare the endpoint's exact HTTPS origin in `permissions.net`
+and a panel/header surface in the manifest; see the
+[panel and widget contract](PROTOCOL.md#sandboxed-panels-and-header-widgets).
+`hostFetch` returns HTTP status/body and cache age; it does not return a native
+`Response` or inject credentials. Host errors preserve their codes, and a
+60-second timeout allows for the consent dialog. A hidden badge frame cannot
+request consent. Schedule refreshes in your UI lifecycle, using the same
+interval as `maxAge`. `badge(text)` sets a simple header label; `widget([])`
+clears the richer header widget. Cache coalescing, permissions, and sanitization stay
+in the host. For Unified account usage in an in-process app, reuse
+`getSdk().usage.get()` and `summarizeUsage()` through the existing host bridge.
+
 Start with [APP_GUIDE.md](APP_GUIDE.md) (tutorial), the runnable
 [`templates/app-template`](templates/app-template/README.md), and
 [PROTOCOL.md § Embedded apps](PROTOCOL.md#embedded-apps) (the normative
