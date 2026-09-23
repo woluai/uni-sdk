@@ -194,8 +194,14 @@ or fails with a fall-through error such as `handoff_unreachable`.
 
 | OS | Path |
 | --- | --- |
-| macOS, Linux | `~/.unifiedai/desktop.json` |
-| Windows | `%APPDATA%\UnifiedAI\desktop.json` |
+| macOS, Linux | `~/.woluai/desktop.json` |
+| Windows | `%APPDATA%\WoluAI\desktop.json` |
+
+Each desktop environment has its own folder: the paths above are prod's, and a
+dev or local build uses `~/.woluai-dev` / `~/.woluai-local` (`WoluAI-dev` /
+`WoluAI-local` on Windows). SDKs pick the folder from `WOLUAI_ENV` (`dev`,
+`local`; unset or `prod` means prod), which the desktop sets on the processes it
+spawns. The same folder holds `ecosystem.json` (below).
 
 ```json
 { "port": 0, "pid": 0, "started_at": 0 }
@@ -326,6 +332,7 @@ Stored value is the `TokenSet` JSON, UTF-8.
 | Name | Purpose |
 | --- | --- |
 | `UNIFIEDAI_HANDOFF_PORT` | Desktop handoff endpoint port. Set by the desktop when it launches an installed app. |
+| `WOLUAI_ENV` | Which desktop environment's discovery folder to read: `dev` → `~/.woluai-dev`, `local` → `~/.woluai-local`; unset or `prod` → `~/.woluai`. Set by the desktop when it launches an installed app. |
 | `UNIFIEDAI_HANDOFF_TOKEN` | Optional per-launch shared secret, forwarded verbatim as the `x-handoff-token` header on handoff requests. Absent → header omitted. |
 | `UNIFIEDAI_CLIENT_ID` | Optional fallback client_id when the SDK is not configured with one. |
 | `UNIFIEDAI_TOKEN_URL` | Override the OAuth token endpoint URL (testing / staging). |
@@ -753,8 +760,10 @@ discovery file so local clients can reach the loopback ecosystem hosting.
 
 | OS | Path |
 | --- | --- |
-| macOS, Linux | `~/.unifiedai/ecosystem.json` |
-| Windows | `%APPDATA%\UnifiedAI\ecosystem.json` |
+| macOS, Linux | `~/.woluai/ecosystem.json` |
+| Windows | `%APPDATA%\WoluAI\ecosystem.json` |
+
+(`~/.woluai-<env>` for a `WOLUAI_ENV` build, as for `desktop.json`.)
 
 ```json
 { "url": "http://127.0.0.1:0", "token": "string", "pid": 0, "started_at": 0 }

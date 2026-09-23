@@ -199,8 +199,9 @@ In OAuth mode (node entry only) it resolves the user identity via:
    through rather than failing)
 2. env-var-supplied handoff port (`UNIFIEDAI_HANDOFF_PORT`; a 404 here is
    authoritative and surfaces as `app_not_installed`)
-3. discovery-file handoff (`~/.unifiedai/desktop.json`, or
-   `%APPDATA%\UnifiedAI\desktop.json` on Windows; a 404 here falls through —
+3. discovery-file handoff (`~/.woluai/desktop.json`, or
+   `%APPDATA%\WoluAI\desktop.json` on Windows; `~/.woluai-<env>` when
+   `WOLUAI_ENV=dev|local`; a 404 here falls through —
    the file may be stale)
 4. fresh browser PKCE (loopback receives the redirect; bounded by
    `signInTimeoutMs`, default 5 minutes)

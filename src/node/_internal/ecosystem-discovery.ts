@@ -72,7 +72,7 @@ async function enrollLocal(
  *   1. **Env handoff** — `UNIFIEDAI_ECOSYSTEM_URL` + `UNIFIEDAI_ECOSYSTEM_TOKEN`. A
  *      BUNDLED app (class 3) receives a pre-scoped token from the shell at launch this
  *      way; trusted without a probe (the shell set it for this exact child process).
- *   2. **Discovery file** — read `~/.unifiedai/ecosystem.json` + probe `GET <url>/health`.
+ *   2. **Discovery file** — read `~/.woluai/ecosystem.json` (per WOLUAI_ENV) + probe `GET <url>/health`.
  *      The file's token is the powerless anonymous identity; a standalone app (class 4)
  *      enrolls for real scopes (§9), which is a later addition.
  * A stale file (dead port) resolves to null because the probe fails — never throws.

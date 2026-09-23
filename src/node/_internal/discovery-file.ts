@@ -5,13 +5,19 @@ import { join } from "node:path";
 // Shared plumbing for the desktop-app discovery files (`desktop.json`,
 // `ecosystem.json`). Node-only (node:fs) — never import from a browser bundle.
 
-/** Platform config dir: `%APPDATA%\UnifiedAI` on Windows, `~/.unifiedai` elsewhere. */
+/**
+ * Platform config dir, one per Wolu environment: `~/.woluai` (`%APPDATA%\WoluAI` on
+ * Windows) for prod, and `~/.woluai-<env>` for `WOLUAI_ENV=dev|local`. The desktop app
+ * sets WOLUAI_ENV on the processes it spawns; set it yourself to reach a dev build.
+ */
 export function defaultDiscoveryDir(): string {
+  const env = process.env.WOLUAI_ENV?.trim();
+  const suffix = env && env !== "prod" ? `-${env}` : "";
   if (platform() === "win32") {
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
-    return join(appData, "UnifiedAI");
+    return join(appData, `WoluAI${suffix}`);
   }
-  return join(homedir(), ".unifiedai");
+  return join(homedir(), `.woluai${suffix}`);
 }
 
 /**
