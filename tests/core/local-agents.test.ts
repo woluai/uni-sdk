@@ -329,6 +329,34 @@ describe("runLocalAgent", () => {
     await run;
   });
 
+  // An app's FIRST turn is `system` + `prompt` with no transcript (the design
+  // app's brief). The system prompt must reach the CLI, and the returned
+  // transcript must carry it so a saved-and-refined thread keeps it too.
+  test("system + prompt without messages: sent as the system prompt and kept in the transcript", async () => {
+    paired();
+    const run = runLocalAgent({
+      model: "claude-code/opus",
+      system: "You are the Design assistant.",
+      prompt: "a pricing page",
+    });
+    await flush();
+
+    const start = desktop.calls.find((c) => c.url.endsWith("/runs"));
+    expect(start?.body).toMatchObject({
+      systemPrompt: "You are the Design assistant.",
+      prompt: "a pricing page",
+    });
+
+    desktop.line({ type: "result", is_error: false, result: "done" });
+    desktop.finish();
+    const result = await run;
+    expect(result.messages).toEqual([
+      { role: "system", content: "You are the Design assistant." },
+      { role: "user", content: "a pricing page" },
+      { role: "assistant", content: "done" },
+    ]);
+  });
+
   test("Cursor, which has no such flag, carries them at the head of the prompt", async () => {
     paired();
     desktop.cursor = { found: true, path: "/usr/local/bin/cursor-agent" };

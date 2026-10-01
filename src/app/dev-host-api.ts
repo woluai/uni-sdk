@@ -261,6 +261,7 @@ export async function runAgent(
   return await runLocalAgent({
     model,
     ...(runOpts.messages ? { messages: runOpts.messages } : {}),
+    ...(runOpts.system ? { system: runOpts.system } : {}),
     ...(runOpts.prompt !== undefined ? { prompt: runOpts.prompt } : {}),
     ...(runOpts.tools ? { tools: runOpts.tools } : {}),
     ...(runOpts.signal ? { signal: runOpts.signal } : {}),

@@ -270,7 +270,14 @@ export async function runLocalAgent(opts: RunLocalAgentOptions): Promise<RunAgen
   const lane = laneForModel(opts.model);
   if (!lane) throw new Error(`"${opts.model}" is not a local agent model.`);
 
-  const messages = opts.messages ?? [];
+  // Same starting transcript as `sdk.agent.run`: explicit `messages` win, else
+  // [system?, user]. Building it here (not just reading `opts.system`) is what
+  // keeps the returned transcript resumable — a caller that saves `messages`
+  // and refines from it must get its system prompt back.
+  const messages: ChatCompletionMessage[] = opts.messages ?? [
+    ...(opts.system ? [{ role: "system", content: opts.system } as ChatCompletionMessage] : []),
+    { role: "user", content: opts.prompt ?? "" } as ChatCompletionMessage,
+  ];
   const promptText =
     typeof opts.prompt === "string"
       ? opts.prompt
