@@ -8289,7 +8289,10 @@ async function runLocalAgent(opts) {
   const lane = laneForModel(opts.model);
   if (!lane)
     throw new Error(`"${opts.model}" is not a local agent model.`);
-  const messages = opts.messages ?? [];
+  const messages = opts.messages ?? [
+    ...opts.system ? [{ role: "system", content: opts.system }] : [],
+    { role: "user", content: opts.prompt ?? "" }
+  ];
   const promptText = typeof opts.prompt === "string" ? opts.prompt : Array.isArray(opts.prompt) ? flattenParts(opts.prompt) : latestUserText(messages);
   const signal = opts.signal ?? new AbortController().signal;
   const onEvent = opts.onEvent ?? (() => {});
@@ -8491,6 +8494,7 @@ async function runAgent(options) {
   return await runLocalAgent({
     model,
     ...runOpts.messages ? { messages: runOpts.messages } : {},
+    ...runOpts.system ? { system: runOpts.system } : {},
     ...runOpts.prompt !== undefined ? { prompt: runOpts.prompt } : {},
     ...runOpts.tools ? { tools: runOpts.tools } : {},
     ...runOpts.signal ? { signal: runOpts.signal } : {},
@@ -8573,34 +8577,34 @@ function readLocalFolderFiles() {
   return Promise.reject(new Error("@unified/host-api: readLocalFolderFiles unavailable in standalone dev"));
 }
 export {
-  checkDesktopAvailable2 as checkDesktopAvailable,
-  connectDesktop2 as connectDesktop,
-  disconnectDesktop2 as disconnectDesktop,
-  fsTools,
-  getCurrentProject,
-  getDesktopStatus,
-  getProviderLogo,
-  getSdk,
-  getTheme,
-  getUsage,
-  hasRunAgent,
-  isDesktopPaired,
-  isLocalAgentModel2 as isLocalAgentModel,
-  listHostDir,
-  listLocalDevices,
-  listModels,
-  onDesktopStatusChange,
-  onProjectChange,
-  onThemeChange,
-  openArtifact,
-  pickLocalFolder,
-  pickWorkspaceFolder2 as pickWorkspaceFolder,
-  readLocalFolderFiles,
-  refreshDesktop,
-  refreshLocalDevices,
+  runAgent,
   registerActions,
-  runAgent
+  refreshLocalDevices,
+  refreshDesktop,
+  readLocalFolderFiles,
+  pickWorkspaceFolder2 as pickWorkspaceFolder,
+  pickLocalFolder,
+  openArtifact,
+  onThemeChange,
+  onProjectChange,
+  onDesktopStatusChange,
+  listModels,
+  listLocalDevices,
+  listHostDir,
+  isLocalAgentModel2 as isLocalAgentModel,
+  isDesktopPaired,
+  hasRunAgent,
+  getUsage,
+  getTheme,
+  getSdk,
+  getProviderLogo,
+  getDesktopStatus,
+  getCurrentProject,
+  fsTools,
+  disconnectDesktop2 as disconnectDesktop,
+  connectDesktop2 as connectDesktop,
+  checkDesktopAvailable2 as checkDesktopAvailable
 };
 
-//# debugId=696E56DAB7D584E864756E2164756E21
+//# debugId=C30A044D2EDCF10764756E2164756E21
 //# sourceMappingURL=dev-host-api.js.map

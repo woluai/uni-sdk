@@ -9098,7 +9098,10 @@ async function runLocalAgent(opts) {
   const lane = laneForModel(opts.model);
   if (!lane)
     throw new Error(`"${opts.model}" is not a local agent model.`);
-  const messages = opts.messages ?? [];
+  const messages = opts.messages ?? [
+    ...opts.system ? [{ role: "system", content: opts.system }] : [],
+    { role: "user", content: opts.prompt ?? "" }
+  ];
   const promptText = typeof opts.prompt === "string" ? opts.prompt : Array.isArray(opts.prompt) ? flattenParts(opts.prompt) : latestUserText(messages);
   const signal = opts.signal ?? new AbortController().signal;
   const onEvent = opts.onEvent ?? (() => {});
@@ -9789,11 +9792,13 @@ import { readFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 function defaultDiscoveryDir() {
+  const env = process.env.WOLUAI_ENV?.trim();
+  const suffix = env && env !== "prod" ? `-${env}` : "";
   if (platform() === "win32") {
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
-    return join(appData, "UnifiedAI");
+    return join(appData, `WoluAI${suffix}`);
   }
-  return join(homedir(), ".unifiedai");
+  return join(homedir(), `.woluai${suffix}`);
 }
 async function readDiscoveryJson(path, isValid) {
   try {
@@ -10788,5 +10793,5 @@ export {
   Actions
 };
 
-//# debugId=CC452161C6D655A164756E2164756E21
+//# debugId=70CFEC9A6C1B158C64756E2164756E21
 //# sourceMappingURL=index.js.map

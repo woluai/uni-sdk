@@ -104,11 +104,11 @@ function formatBench(name, s) {
   return `search-bench ${name.padEnd(28)} p50 ${ms(s.p50)}  p95 ${ms(s.p95)}  max ${ms(s.max)}  (${s.runs} runs)`;
 }
 export {
-  HOST_LIMITS,
-  benchmark,
+  formatBench,
   findHitViolations,
-  formatBench
+  benchmark,
+  HOST_LIMITS
 };
 
-//# debugId=234D1EB0BC639C7064756E2164756E21
+//# debugId=9FAB22B39FAF68A764756E2164756E21
 //# sourceMappingURL=testkit.js.map
