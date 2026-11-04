@@ -556,7 +556,7 @@ try {
 ## Resources
 
 Everything hangs off one client. Resources are memoized lazy getters —
-constructed on first access, so `sdk.chat` alone doesn't pay for the other 21.
+constructed on first access, so `sdk.chat` alone doesn't pay for the other 20.
 
 | Resource | What it does |
 | --- | --- |
@@ -572,7 +572,6 @@ constructed on first access, so `sdk.chat` alone doesn't pay for the other 21.
 | `sdk.usage` | Account usage stats (tokens, costs) + subscription plan details. |
 | `sdk.users` | Authenticated profile (`me()`) and public user lookup by id(s). |
 | `sdk.helpers` | Stateless multimodal helpers — source normalization, part construction. |
-| `sdk.calendar` | Stateless date math: timezone-aware recurrence expansion, sync-adapter serialization. |
 | `sdk.projects` | Cross-app projects — user-owned containers gathering work from many apps. |
 | `sdk.references` | Resolve `uniref://` project links back into renderable content. |
 | `sdk.artifacts` | Canonical, versioned snapshots of app work (docs, sheets, designs). |

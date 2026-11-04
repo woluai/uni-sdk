@@ -2,7 +2,6 @@ import { Actions } from "../resources/actions";
 import { Agent } from "../resources/agent";
 import { Artifacts } from "../resources/artifacts";
 import { Audio } from "../resources/audio";
-import { Calendar } from "../resources/calendar";
 import { Chat } from "../resources/chat";
 import { Decisions } from "../resources/decisions";
 import { Embeddings } from "../resources/embeddings";
@@ -112,7 +111,6 @@ export class UnifiedAI extends Core {
   #embeddings?: Embeddings;
   #decisions?: Decisions;
   #helpers?: Helpers;
-  #calendar?: Calendar;
   #projects?: Projects;
   #references?: References;
   #artifacts?: Artifacts;
@@ -161,9 +159,6 @@ export class UnifiedAI extends Core {
   }
   get helpers(): Helpers {
     return (this.#helpers ??= new Helpers());
-  }
-  get calendar(): Calendar {
-    return (this.#calendar ??= new Calendar());
   }
 
   /**
