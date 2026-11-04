@@ -20,7 +20,10 @@ async function startFakeUnifiedApi(): Promise<FakeUnifiedApi> {
     body: {
       object: "list",
       data: [
-        { id: "gpt-x", type: "text", object: "model", owned_by: "acme" },
+        {
+          id: "gpt-x", type: "text", object: "model", owned_by: "acme",
+          reasoning_options: [{ type: "effort", values: ["low", "high", "max"] }],
+        },
         { id: "img-y", type: "image", object: "model", owned_by: "acme", created: 1700000000 },
       ],
     },
@@ -96,6 +99,9 @@ describe("sdk.models.list", () => {
     expect(res.data).toHaveLength(2);
     expect(res.data[0]?.id).toBe("gpt-x");
     expect(res.data[0]?.type).toBe("text");
+    expect(res.data[0]?.reasoning_options).toEqual([
+      { type: "effort", values: ["low", "high", "max"] },
+    ]);
     expect(api.lastAuth()).toBe(`Bearer ${ACCESS_TOKEN}`);
   });
 

@@ -352,6 +352,9 @@ export class Agent {
               ? { tools: tools.map((t) => t.definition), tool_choice: "auto" as const }
               : {}),
             ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
+            ...(options.reasoningEffort !== undefined
+              ? { reasoning_effort: options.reasoningEffort }
+              : {}),
             stream: true,
             stream_options: { include_usage: true },
           },

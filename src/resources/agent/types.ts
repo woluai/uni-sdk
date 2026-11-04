@@ -11,6 +11,7 @@ import type {
   ChatCompletionMessage,
   ChatCompletionToolDefinition,
   ChatCompletionUserContentPart,
+  ReasoningEffort,
 } from "../chat";
 
 /** What a tool's `execute` returns: text fed back to the model, flagged on error. */
@@ -96,6 +97,8 @@ export interface RunAgentOptions {
   tools?: ToolSpec[];
   /** Model id; defaults to the gateway's `auto` router. */
   model?: string;
+  /** Reasoning effort for models that support it; omitted uses the provider default. */
+  reasoningEffort?: ReasoningEffort;
   /** Safety cap on tool-call round trips (default 40). */
   maxSteps?: number;
   /**
