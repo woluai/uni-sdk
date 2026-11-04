@@ -63,6 +63,8 @@ export interface RelayHostStatus {
     deviceId: string;
     /** A host socket is up, so connecting needs no knock. */
     socket: boolean;
+    /** When its capabilities last changed: re-read the listing if this moved. */
+    capabilitiesAt: number;
     /** Conversations with a turn running on that host. */
     working: string[];
     /** Conversations waiting on the user there → what they wait for. */
