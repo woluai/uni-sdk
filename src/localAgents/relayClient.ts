@@ -62,6 +62,12 @@ export interface RelayStartArgs {
 
 /** Request/response frames time out; a run's stream does not (it can think for minutes). */
 const REQUEST_TIMEOUT_MS = 30_000;
+/**
+ * A polling host opens its socket on its next poll after a knock, so a 4404
+ * right after one means "not yet". Longer than one poll, shorter than ready().
+ */
+const WAKE_TIMEOUT_MS = 10_000;
+const WAKE_RETRY_MS = 500;
 /** Reconnect backoff, doubling to the ceiling. */
 const BACKOFF_MIN_MS = 500;
 const BACKOFF_MAX_MS = 15_000;
@@ -94,6 +100,89 @@ export async function listRelayHosts(): Promise<RelayHost[]> {
 function isRelayHost(value: unknown): value is RelayHost {
   const v = value as RelayHost | null;
   return !!v && typeof v.deviceId === "string" && typeof v.deviceName === "string";
+}
+
+// ── Presence, status, knock ─────────────────────────────────────────────────
+//
+// A sharing desktop holds no socket until someone needs one: it polls `/presence`,
+// clients poll `/status` and `/knock` a host to bring its socket up
+// (agent-relay.md § On-demand sockets). All plain HTTP, like the listing above.
+
+export interface RelayHostStatus {
+  deviceId: string;
+  /** A host socket is up, so connecting needs no knock. */
+  socket: boolean;
+  /** Conversations with a turn running on that host. */
+  working: string[];
+  /** Conversations waiting on the user there → what they wait for. */
+  awaiting: Record<string, string>;
+}
+
+export interface RelayStatus {
+  hosts: RelayHostStatus[];
+  /** Moves on every chat write; null when the server has seen none since it started. */
+  chatSync: number | null;
+}
+
+export interface RelayPresence {
+  deviceId: string;
+  deviceName?: string;
+  working?: string[];
+  awaiting?: Record<string, string>;
+  capabilities?: Record<string, unknown>;
+}
+
+export interface RelayPresenceAnswer {
+  /** A client wants this host's socket. */
+  wake: boolean;
+  chatSync: number | null;
+  /** The server has no capabilities for this host, as after a restart. */
+  sendCapabilities: boolean;
+}
+
+async function relayFetch(path: string, init: RequestInit = {}): Promise<Response | null> {
+  const token = await unifiedToken();
+  if (!token) return null;
+  const base = unifiedApiUrl().replace(/\/+$/, "");
+  return fetch(`${base}/api/v1/relay${path}`, {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${token}` },
+  });
+}
+
+/** Who is online and what they run. Null when signed out or the server didn't answer. */
+export async function relayStatus(): Promise<RelayStatus | null> {
+  const res = await relayFetch("/status").catch(() => null);
+  return res?.ok ? ((await res.json()) as RelayStatus) : null;
+}
+
+/**
+ * Ask a polling host to open its socket. Null when the server didn't answer, in
+ * which case the connect attempt still tells the caller where things stand.
+ */
+export async function knockRelayHost(
+  deviceId: string,
+): Promise<{ online: boolean; socket: boolean } | null> {
+  const res = await relayFetch(`/knock/${encodeURIComponent(deviceId)}`, { method: "POST" }).catch(
+    () => null,
+  );
+  return res?.ok ? ((await res.json()) as { online: boolean; socket: boolean }) : null;
+}
+
+/**
+ * A host's poll. `status` lets it tell "this device isn't yours" (403, stop
+ * polling) from a passing failure (try again next poll); 0 means signed out.
+ */
+export async function postRelayPresence(
+  presence: RelayPresence,
+): Promise<{ status: number; answer: RelayPresenceAnswer | null }> {
+  const res = await relayFetch("/presence", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(presence),
+  });
+  if (!res) return { status: 0, answer: null };
+  return { status: res.status, answer: res.ok ? ((await res.json()) as RelayPresenceAnswer) : null };
 }
 
 // ── WebSocket URL ───────────────────────────────────────────────────────────
@@ -222,6 +311,9 @@ function createConnection(deviceId: string): RelayConnection {
   let backoff = BACKOFF_MIN_MS;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let closedByUs = false;
+  let opening = false;
+  /** While set and in the future, a 4404 means the knocked host hasn't opened yet. */
+  let wakeUntil = 0;
 
   function settleReady(): void {
     if (approval.get() !== "approved" || !connected.get()) return;
@@ -315,7 +407,8 @@ function createConnection(deviceId: string): RelayConnection {
         break;
       }
       case "host-closed":
-        lastError.set("That computer went offline.");
+        // A host with nothing to do closes its socket. Only a run it took with it is news.
+        if (runs.size) lastError.set("That computer went offline.");
         endAllRuns("the host went offline");
         break;
       // ALLOWLIST, not a formality: a reply whose type is missing here is
@@ -386,8 +479,27 @@ function createConnection(deviceId: string): RelayConnection {
     for (const id of [...pending.keys()]) rejectPending(id, `Relay connection lost: ${reason}`);
   }
 
+  function reportOffline(): void {
+    wakeUntil = 0;
+    lastError.set("That computer is offline.");
+    failReady("That computer is offline.");
+  }
+
   async function open(): Promise<void> {
+    if (closedByUs || opening || socket) return;
+    opening = true;
+    try {
+      await connect();
+    } finally {
+      opening = false;
+    }
+  }
+
+  async function connect(): Promise<void> {
+    if (!wakeUntil) wakeUntil = Date.now() + WAKE_TIMEOUT_MS;
+    const knock = await knockRelayHost(deviceId);
     if (closedByUs) return;
+    if (knock && !knock.online) return reportOffline();
     // The unified-api bearer may be short-lived, so it is fetched per
     // connection attempt rather than captured once.
     const proto = await bearerSubprotocol();
@@ -421,6 +533,7 @@ function createConnection(deviceId: string): RelayConnection {
       backoff = BACKOFF_MIN_MS;
       lastError.set(null);
     };
+    // A socket that opens is not attached yet: 4404 arrives after the upgrade.
     ws.onmessage = (event: MessageEvent) => {
       if (typeof event.data !== "string") return;
       let frame: Record<string, unknown>;
@@ -435,17 +548,29 @@ function createConnection(deviceId: string): RelayConnection {
       connected.set(false);
       if (socket === ws) socket = null;
       endAllRuns("socket closed");
-      // 4403 (not your device) / 4404 (host offline) are terminal answers, not
-      // transient failures — retrying just spins.
-      if (event.code === 4403 || event.code === 4404) {
-        if (event.code === 4403) approval.set("denied");
-        lastError.set(
-          event.code === 4404 ? "That computer is offline." : "That computer isn't yours to use.",
-        );
-        failReady(lastError.get() ?? "Relay closed.");
+      // 4403 (not your device) is a terminal answer, not a transient failure.
+      if (event.code === 4403) {
+        wakeUntil = 0;
+        approval.set("denied");
+        lastError.set("That computer isn't yours to use.");
+        failReady("That computer isn't yours to use.");
         return;
       }
-      scheduleRetry();
+      // 4404 means no socket yet. Right after a knock that is the host on its way.
+      if (event.code === 4404) {
+        if (Date.now() >= wakeUntil) return reportOffline();
+        if (!retryTimer && !closedByUs) {
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            void open();
+          }, WAKE_RETRY_MS);
+        }
+        return;
+      }
+      wakeUntil = 0;
+      // A host with nothing to do closes its socket, and waking it again costs the
+      // user money, so only reconnect for a caller who is waiting. ready() reopens.
+      if (readyWaiters.length) scheduleRetry();
     };
     ws.onerror = () => {
       lastError.set("Relay connection error.");
@@ -476,6 +601,7 @@ function createConnection(deviceId: string): RelayConnection {
       if (approval.get() === "denied") {
         return Promise.reject(new Error("That computer declined this device."));
       }
+      if (!retryTimer) void open();
       return new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(notReadyReason())), timeoutMs);
         readyWaiters.push({

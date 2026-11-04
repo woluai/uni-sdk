@@ -72,10 +72,17 @@ export {
   closeAllRelayHosts,
   closeRelayHost,
   connectRelayHost,
+  knockRelayHost,
+  postRelayPresence,
+  relayStatus,
   type ApprovalState,
   type RelayCapabilities,
   type RelayConnection,
   type RelayHost,
+  type RelayHostStatus,
+  type RelayPresence,
+  type RelayPresenceAnswer,
+  type RelayStatus,
   // The relay's own transport primitives. A HOST — the machine that executes
   // the runs — speaks the same URL and subprotocol as the client but the
   // opposite half of the contract (`/relay/host` rather than `/relay/connect`),

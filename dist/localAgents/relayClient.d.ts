@@ -59,6 +59,52 @@ export interface RelayStartArgs {
  * absolute base.
  */
 export declare function listRelayHosts(): Promise<RelayHost[]>;
+export interface RelayHostStatus {
+    deviceId: string;
+    /** A host socket is up, so connecting needs no knock. */
+    socket: boolean;
+    /** Conversations with a turn running on that host. */
+    working: string[];
+    /** Conversations waiting on the user there → what they wait for. */
+    awaiting: Record<string, string>;
+}
+export interface RelayStatus {
+    hosts: RelayHostStatus[];
+    /** Moves on every chat write; null when the server has seen none since it started. */
+    chatSync: number | null;
+}
+export interface RelayPresence {
+    deviceId: string;
+    deviceName?: string;
+    working?: string[];
+    awaiting?: Record<string, string>;
+    capabilities?: Record<string, unknown>;
+}
+export interface RelayPresenceAnswer {
+    /** A client wants this host's socket. */
+    wake: boolean;
+    chatSync: number | null;
+    /** The server has no capabilities for this host, as after a restart. */
+    sendCapabilities: boolean;
+}
+/** Who is online and what they run. Null when signed out or the server didn't answer. */
+export declare function relayStatus(): Promise<RelayStatus | null>;
+/**
+ * Ask a polling host to open its socket. Null when the server didn't answer, in
+ * which case the connect attempt still tells the caller where things stand.
+ */
+export declare function knockRelayHost(deviceId: string): Promise<{
+    online: boolean;
+    socket: boolean;
+} | null>;
+/**
+ * A host's poll. `status` lets it tell "this device isn't yours" (403, stop
+ * polling) from a passing failure (try again next poll); 0 means signed out.
+ */
+export declare function postRelayPresence(presence: RelayPresence): Promise<{
+    status: number;
+    answer: RelayPresenceAnswer | null;
+}>;
 /**
  * Relay WebSockets connect to unified-api DIRECTLY rather than through the
  * local proxies the HTTP calls use: dev proxies do not handle upgrades

@@ -6628,6 +6628,22 @@ class Sync {
     });
     return res.workspaces;
   }
+  async head(workspaceId) {
+    const res = await this.client.request(`/api/v1/sync/${encodeURIComponent(workspaceId)}/head`, { method: "GET", retry: false });
+    return res.cursor;
+  }
+  async delta(workspaceId, opts) {
+    return this.client.request(`/api/v1/sync/${encodeURIComponent(workspaceId)}/delta`, {
+      method: "GET",
+      query: {
+        cursor: opts.cursor,
+        ...opts.ns ? { ns: opts.ns } : {},
+        ...opts.thin ? { thin: "1" } : {},
+        ...opts.limit ? { limit: opts.limit } : {}
+      },
+      retry: false
+    });
+  }
   workspace(workspaceId, opts = {}) {
     let ws = this.workspaces.get(workspaceId);
     if (!ws) {
@@ -7279,6 +7295,8 @@ function dispatchFrame(frame, handlers) {
 }
 // src/localAgents/relayClient.ts
 var REQUEST_TIMEOUT_MS2 = 30000;
+var WAKE_TIMEOUT_MS = 1e4;
+var WAKE_RETRY_MS = 500;
 var BACKOFF_MIN_MS = 500;
 var BACKOFF_MAX_MS = 15000;
 async function listRelayHosts() {
@@ -7300,6 +7318,34 @@ async function listRelayHosts() {
 function isRelayHost(value) {
   const v = value;
   return !!v && typeof v.deviceId === "string" && typeof v.deviceName === "string";
+}
+async function relayFetch(path, init = {}) {
+  const token = await unifiedToken();
+  if (!token)
+    return null;
+  const base = unifiedApiUrl().replace(/\/+$/, "");
+  return fetch(`${base}/api/v1/relay${path}`, {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${token}` }
+  });
+}
+async function relayStatus() {
+  const res = await relayFetch("/status").catch(() => null);
+  return res?.ok ? await res.json() : null;
+}
+async function knockRelayHost(deviceId) {
+  const res = await relayFetch(`/knock/${encodeURIComponent(deviceId)}`, { method: "POST" }).catch(() => null);
+  return res?.ok ? await res.json() : null;
+}
+async function postRelayPresence(presence) {
+  const res = await relayFetch("/presence", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(presence)
+  });
+  if (!res)
+    return { status: 0, answer: null };
+  return { status: res.status, answer: res.ok ? await res.json() : null };
 }
 function relayWsUrl(path) {
   const url = new URL(`${relayWsBase()}/relay${path}`);
@@ -7358,6 +7404,8 @@ function createConnection(deviceId) {
   let backoff = BACKOFF_MIN_MS;
   let retryTimer = null;
   let closedByUs = false;
+  let opening = false;
+  let wakeUntil = 0;
   function settleReady() {
     if (approval.get() !== "approved" || !connected.get())
       return;
@@ -7443,7 +7491,8 @@ function createConnection(deviceId) {
         break;
       }
       case "host-closed":
-        lastError.set("That computer went offline.");
+        if (runs.size)
+          lastError.set("That computer went offline.");
         endAllRuns("the host went offline");
         break;
       case "detect-result":
@@ -7510,9 +7559,29 @@ function createConnection(deviceId) {
     for (const id of [...pending.keys()])
       rejectPending(id, `Relay connection lost: ${reason}`);
   }
+  function reportOffline() {
+    wakeUntil = 0;
+    lastError.set("That computer is offline.");
+    failReady("That computer is offline.");
+  }
   async function open() {
+    if (closedByUs || opening || socket)
+      return;
+    opening = true;
+    try {
+      await connect();
+    } finally {
+      opening = false;
+    }
+  }
+  async function connect() {
+    if (!wakeUntil)
+      wakeUntil = Date.now() + WAKE_TIMEOUT_MS;
+    const knock = await knockRelayHost(deviceId);
     if (closedByUs)
       return;
+    if (knock && !knock.online)
+      return reportOffline();
     const proto = await bearerSubprotocol();
     if (closedByUs)
       return;
@@ -7557,14 +7626,27 @@ function createConnection(deviceId) {
       if (socket === ws)
         socket = null;
       endAllRuns("socket closed");
-      if (event.code === 4403 || event.code === 4404) {
-        if (event.code === 4403)
-          approval.set("denied");
-        lastError.set(event.code === 4404 ? "That computer is offline." : "That computer isn't yours to use.");
-        failReady(lastError.get() ?? "Relay closed.");
+      if (event.code === 4403) {
+        wakeUntil = 0;
+        approval.set("denied");
+        lastError.set("That computer isn't yours to use.");
+        failReady("That computer isn't yours to use.");
         return;
       }
-      scheduleRetry();
+      if (event.code === 4404) {
+        if (Date.now() >= wakeUntil)
+          return reportOffline();
+        if (!retryTimer && !closedByUs) {
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            open();
+          }, WAKE_RETRY_MS);
+        }
+        return;
+      }
+      wakeUntil = 0;
+      if (readyWaiters.length)
+        scheduleRetry();
     };
     ws.onerror = () => {
       lastError.set("Relay connection error.");
@@ -7593,6 +7675,8 @@ function createConnection(deviceId) {
       if (approval.get() === "denied") {
         return Promise.reject(new Error("That computer declined this device."));
       }
+      if (!retryTimer)
+        open();
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(notReadyReason())), timeoutMs);
         readyWaiters.push({
@@ -10625,10 +10709,12 @@ export {
   resolveSourceFor,
   resolveLocalAgentSource,
   relayWsUrl,
+  relayStatus,
   refreshRelayHosts,
   refreshLocalAgents,
   refreshLocalAgentDevices,
   profileById,
+  postRelayPresence,
   planRequiredError,
   planPrompt,
   placeholderLocalModel,
@@ -10657,6 +10743,7 @@ export {
   listLocalAgentDir,
   listLocalAgentDevices,
   laneForModel,
+  knockRelayHost,
   itemToMetadata,
   isSameDayInZone,
   isResolvableArtifactRef,
@@ -10793,5 +10880,5 @@ export {
   Actions
 };
 
-//# debugId=70CFEC9A6C1B158C64756E2164756E21
+//# debugId=1462746FECC5B04E64756E2164756E21
 //# sourceMappingURL=index.js.map

@@ -577,6 +577,12 @@ class FakeSyncServer {
     if (action === "bootstrap" && method === "GET") {
       return this.bootstrap(workspaceId, url, caller);
     }
+    if (action === "head" && method === "GET") {
+      if (this.offline)
+        return errorResponse(503, "unavailable");
+      const ws = this.ws(workspaceId);
+      return jsonResponse(200, { cursor: encodeCursor({ e: ws.epoch, a: this.maxSyncId(ws) }) });
+    }
     if (action === "delta" && method === "GET") {
       return this.delta(workspaceId, url, caller);
     }
@@ -634,13 +640,23 @@ class FakeSyncServer {
         return errorResponse(409, "cursor_epoch_mismatch");
       after = c.a;
     }
-    const changed = [...ws.records.values()].filter((r) => r.syncId > after && this.nsVisible(caller, r.ns, "read")).sort((a, b) => a.syncId - b.syncId);
+    const ns = url.searchParams.get("ns");
+    const thin = url.searchParams.get("thin") === "1";
+    const changed = [...ws.records.values()].filter((r) => r.syncId > after && (!ns || r.ns === ns) && this.nsVisible(caller, r.ns, "read")).sort((a, b) => a.syncId - b.syncId);
     const page = changed.slice(0, limit);
     const hasMore = changed.length > limit;
     const lastInPage = page[page.length - 1];
     const newAfter = lastInPage?.syncId ?? after;
     return jsonResponse(200, {
-      records: page.map((r) => r.deleted ? toTombstone(r) : toWire(r)),
+      records: page.map((r) => {
+        if (r.deleted)
+          return toTombstone(r);
+        const wire = toWire(r);
+        if (!thin)
+          return wire;
+        const conversationId = r.metadata.conversationId;
+        return { ...wire, metadata: typeof conversationId === "string" ? { conversationId } : {}, hasBlob: false };
+      }),
       cursor: encodeCursor({ e: ws.epoch, a: newAfter }),
       hasMore
     });
@@ -5515,6 +5531,22 @@ class Sync {
     });
     return res.workspaces;
   }
+  async head(workspaceId) {
+    const res = await this.client.request(`/api/v1/sync/${encodeURIComponent(workspaceId)}/head`, { method: "GET", retry: false });
+    return res.cursor;
+  }
+  async delta(workspaceId, opts) {
+    return this.client.request(`/api/v1/sync/${encodeURIComponent(workspaceId)}/delta`, {
+      method: "GET",
+      query: {
+        cursor: opts.cursor,
+        ...opts.ns ? { ns: opts.ns } : {},
+        ...opts.thin ? { thin: "1" } : {},
+        ...opts.limit ? { limit: opts.limit } : {}
+      },
+      retry: false
+    });
+  }
   workspace(workspaceId, opts = {}) {
     let ws = this.workspaces.get(workspaceId);
     if (!ws) {
@@ -6446,5 +6478,5 @@ export {
   FakeSyncServer
 };
 
-//# debugId=47F794CA4BC0434A64756E2164756E21
+//# debugId=126F67A64A7A2A6564756E2164756E21
 //# sourceMappingURL=index.js.map
