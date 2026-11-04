@@ -4,6 +4,13 @@ import { type LocalAgentDevice, type LocalAgentSource, type LocalAgentSourcePref
 import { fsTools } from "../resources/agent/fs-tools.js";
 import type { RunAgentOptions, RunAgentResult } from "../resources/agent/types.js";
 import { getProviderLogo } from "../resources/logos.js";
+/**
+ * The standalone-dev access token: cached → refreshed (single-flight, so a
+ * burst of boot requests rotates the refresh token once) → full-page sign-in.
+ * ponytail: a token revoked server-side before expiry keeps 401ing until it
+ * expires or localStorage is cleared; add a 401 hook if that bites.
+ */
+export declare function devToken(): Promise<string>;
 export declare function getSdk(): UnifiedAI;
 export { getProviderLogo, fsTools };
 export declare function getTheme(): "light" | "dark";

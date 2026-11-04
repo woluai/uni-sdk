@@ -18,7 +18,6 @@ export * from "./resources/agent/index.js";
 export * from "./resources/audio.js";
 export * from "./resources/actions.js";
 export * from "./resources/artifacts.js";
-export * from "./resources/calendar/index.js";
 export * from "./resources/chat.js";
 export * from "./resources/memory.js";
 export * from "./resources/embeddings.js";
