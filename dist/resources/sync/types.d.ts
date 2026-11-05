@@ -125,4 +125,30 @@ export interface WorkspaceSyncOptions {
      */
     pollIntervalMs?: number;
 }
+export interface SyncDeltaOptions {
+    cursor: string;
+    /** Only this namespace. */
+    ns?: string;
+    /** No payload: each row's identity and `metadata.conversationId`. */
+    thin?: boolean;
+    limit?: number;
+}
+/** One record of a `sdk.sync.delta()` page; tombstones have `deleted: true` and empty metadata. */
+export interface SyncDeltaRecord {
+    ns: string;
+    collection: string;
+    id: string;
+    metadata: Record<string, unknown>;
+    version: number;
+    deleted: boolean;
+    syncId: number;
+    createdAt: number;
+    updatedAt: number;
+    hasBlob: boolean;
+}
+export interface SyncDeltaPage {
+    records: SyncDeltaRecord[];
+    cursor: string;
+    hasMore: boolean;
+}
 //# sourceMappingURL=types.d.ts.map
