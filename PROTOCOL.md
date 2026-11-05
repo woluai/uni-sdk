@@ -819,7 +819,8 @@ by a `workspaceId` path segment.
 ```
 GET  /sync/workspaces                              → { workspaces: [{ id, name, kind, role }] }
 GET  /sync/:workspaceId/bootstrap?cursor=&limit=   → { records: SyncRecord[], cursor, complete }
-GET  /sync/:workspaceId/delta?cursor=&limit=       → { records: SyncRecord[], cursor, hasMore }
+GET  /sync/:workspaceId/head                        → { cursor }
+GET  /sync/:workspaceId/delta?cursor=&limit=&ns=&thin= → { records: SyncRecord[], cursor, hasMore }
 POST /sync/:workspaceId/apply                       Body: { ops: SyncOp[] }   // 1..200
                                                     → { results: [{ ns, collection, id, syncId, version }] }
 ```
@@ -833,6 +834,14 @@ POST /sync/:workspaceId/apply                       Body: { ops: SyncOp[] }   //
   delta cursor** (resume point for the change stream).
 - **delta** returns every change after `cursor` — including **tombstones**
   (`deleted: true`, empty `metadata`). Follow `cursor` while `hasMore` is true.
+  `ns` narrows to one namespace. `thin=1` drops the payload: each row has only
+  its identity fields and `metadata.conversationId` when it has one, so a follower
+  can read ids cheaply and fetch only the rows it shows. Tombstones never have a
+  `conversationId`. (SDK: `sdk.sync.delta(workspaceId, { cursor, ns, thin, limit })`.)
+- **head** returns a delta cursor at the newest committed write. Reading it before
+  a first full read means nothing written after that read is missed, with no
+  bootstrap. A 409 from delta means reading head again and reloading.
+  (SDK: `sdk.sync.head(workspaceId)`.)
 - **The cursor is OPAQUE** — clients MUST NOT parse it; they only echo it back.
 - **apply** ops carry exactly one intent: `patch` (shallow-merge over `metadata`;
   a JSON `null` value REMOVES that key), `replace` (swap `metadata` wholesale),
