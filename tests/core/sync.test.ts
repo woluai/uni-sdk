@@ -334,3 +334,49 @@ describe("sdk.sync — listWorkspaces (discovery)", () => {
     expect(list).toHaveLength(2);
   });
 });
+
+describe("sdk.sync — head + filtered delta", () => {
+  const seedChat = (server: FakeSyncServer) =>
+    server.seed("w1", [
+      { ns: "chat", collection: "messages", id: "m1", metadata: { conversationId: "c1", content: "big" } },
+      { ns: "notes", collection: "notes", id: "n1", metadata: { title: "x" } },
+    ]);
+
+  test("head is a cursor from which a delta sees only what came after", async () => {
+    const server = new FakeSyncServer();
+    seedChat(server);
+    const sdk = makeSdk(server);
+    const cursor = await sdk.sync.head("w1");
+    expect((await sdk.sync.delta("w1", { cursor })).records).toEqual([]);
+
+    server.applyOps("w1", [{ ns: "chat", collection: "conversations", id: "c2", patch: { title: "t" } }]);
+    const page = await sdk.sync.delta("w1", { cursor });
+    expect(page.records.map((r) => r.id)).toEqual(["c2"]);
+    expect((await sdk.sync.delta("w1", { cursor: page.cursor })).records).toEqual([]);
+  });
+
+  test("ns narrows, thin drops the payload, tombstones have no conversationId", async () => {
+    const server = new FakeSyncServer();
+    const sdk = makeSdk(server);
+    const cursor = await sdk.sync.head("w1");
+    seedChat(server);
+
+    const all = await sdk.sync.delta("w1", { cursor });
+    expect(all.records.map((r) => r.id)).toEqual(["m1", "n1"]);
+
+    const chat = await sdk.sync.delta("w1", { cursor, ns: "chat", thin: true });
+    expect(chat.records.map((r) => [r.id, r.metadata])).toEqual([["m1", { conversationId: "c1" }]]);
+
+    server.applyOps("w1", [{ ns: "chat", collection: "messages", id: "m1", delete: true }]);
+    const gone = await sdk.sync.delta("w1", { cursor: chat.cursor, ns: "chat", thin: true });
+    expect(gone.records.map((r) => [r.id, r.deleted, r.metadata])).toEqual([["m1", true, {}]]);
+  });
+
+  test("a bumped epoch answers 409", async () => {
+    const server = new FakeSyncServer();
+    const sdk = makeSdk(server);
+    const cursor = await sdk.sync.head("w1");
+    server.bumpEpoch("w1");
+    await expect(sdk.sync.delta("w1", { cursor })).rejects.toMatchObject({ status: 409 });
+  });
+});

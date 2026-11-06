@@ -1,5 +1,5 @@
 import type { UnifiedAIHttpErrorCode, UnifiedErrorCode } from "../../core/errors.js";
-import type { ChatCompletionMessage, ChatCompletionToolDefinition, ChatCompletionUserContentPart } from "../chat.js";
+import type { ChatCompletionMessage, ChatCompletionToolDefinition, ChatCompletionUserContentPart, ReasoningEffort } from "../chat.js";
 /** What a tool's `execute` returns: text fed back to the model, flagged on error. */
 export interface ToolResult {
     content: string;
@@ -80,6 +80,8 @@ export interface RunAgentOptions {
     tools?: ToolSpec[];
     /** Model id; defaults to the gateway's `auto` router. */
     model?: string;
+    /** Reasoning effort for models that support it; omitted uses the provider default. */
+    reasoningEffort?: ReasoningEffort;
     /** Safety cap on tool-call round trips (default 40). */
     maxSteps?: number;
     /**

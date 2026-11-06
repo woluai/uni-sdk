@@ -2,7 +2,6 @@ import { Actions } from "../resources/actions.js";
 import { Agent } from "../resources/agent.js";
 import { Artifacts } from "../resources/artifacts.js";
 import { Audio } from "../resources/audio.js";
-import { Calendar } from "../resources/calendar.js";
 import { Chat } from "../resources/chat.js";
 import { Decisions } from "../resources/decisions.js";
 import { Embeddings } from "../resources/embeddings.js";
@@ -50,7 +49,6 @@ export declare class UnifiedAI extends Core {
     get embeddings(): Embeddings;
     get decisions(): Decisions;
     get helpers(): Helpers;
-    get calendar(): Calendar;
     /**
      * Cross-app projects (`sdk.projects`). A Project gathers artifacts from
      * different apps into one user-owned workspace; `addLink` attaches an artifact

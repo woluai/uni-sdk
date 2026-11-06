@@ -947,6 +947,7 @@ class Agent {
           messages,
           ...tools.length > 0 ? { tools: tools.map((t) => t.definition), tool_choice: "auto" } : {},
           ...options.maxTokens ? { max_tokens: options.maxTokens } : {},
+          ...options.reasoningEffort !== undefined ? { reasoning_effort: options.reasoningEffort } : {},
           stream: true,
           stream_options: { include_usage: true }
         }, { signal });
@@ -1343,704 +1344,6 @@ class Audio {
   }
 }
 
-// src/resources/calendar/_internal/zoned.ts
-var fmtCache = new Map;
-function formatterFor(tz) {
-  let f = fmtCache.get(tz);
-  if (!f) {
-    f = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    });
-    fmtCache.set(tz, f);
-  }
-  return f;
-}
-function utcToZonedFields(epochMs, tz) {
-  const parts = formatterFor(tz).formatToParts(new Date(epochMs));
-  const num = (type) => Number(parts.find((p) => p.type === type)?.value ?? "0");
-  let hour = num("hour");
-  if (hour === 24)
-    hour = 0;
-  return {
-    year: num("year"),
-    month: num("month"),
-    day: num("day"),
-    hour,
-    minute: num("minute"),
-    second: num("second")
-  };
-}
-function getTimeZoneOffsetMs(epochMs, tz) {
-  const f = utcToZonedFields(epochMs, tz);
-  const asUTC = Date.UTC(f.year, f.month - 1, f.day, f.hour, f.minute, f.second);
-  return asUTC - epochMs;
-}
-function zonedFieldsToUtc(f, tz) {
-  const ts0 = Date.UTC(f.year, f.month - 1, f.day, f.hour, f.minute, f.second, f.ms ?? 0);
-  const off0 = getTimeZoneOffsetMs(ts0, tz);
-  const utc1 = ts0 - off0;
-  const off1 = getTimeZoneOffsetMs(utc1, tz);
-  return off1 === off0 ? utc1 : ts0 - off1;
-}
-var WEEKDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-function weekdayOf(year, month, day) {
-  const idx = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-  return WEEKDAYS[idx] ?? "SU";
-}
-function weekdayIndex(w) {
-  return WEEKDAYS.indexOf(w);
-}
-function daysInMonth(year, month) {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
-}
-
-// src/resources/calendar/datetime.ts
-function inputError(message) {
-  return new UnifiedError("invalid_input", message);
-}
-function pad(n) {
-  return String(n).padStart(2, "0");
-}
-function dateStringInZone(epochMs, tz) {
-  const f = utcToZonedFields(epochMs, tz);
-  return `${f.year}-${pad(f.month)}-${pad(f.day)}`;
-}
-function parseDateString(s) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m)
-    throw inputError(`invalid date string "${s}"; expected YYYY-MM-DD`);
-  const year = Number(m[1]);
-  const month = Number(m[2]);
-  const day = Number(m[3]);
-  if (month < 1 || month > 12 || day < 1 || day > 31) {
-    throw inputError(`invalid date string "${s}"; month/day out of range`);
-  }
-  return { year, month, day };
-}
-function startOfDayInZone(epochMs, tz) {
-  const f = utcToZonedFields(epochMs, tz);
-  return zonedFieldsToUtc({ year: f.year, month: f.month, day: f.day, hour: 0, minute: 0, second: 0 }, tz);
-}
-function startOfDayForDate(dateStr, tz) {
-  const d = parseDateString(dateStr);
-  return zonedFieldsToUtc({ year: d.year, month: d.month, day: d.day, hour: 0, minute: 0, second: 0 }, tz);
-}
-function startOfWeekInZone(epochMs, tz, weekStart = "MO") {
-  const f = utcToZonedFields(epochMs, tz);
-  const back = (weekdayIndex(weekdayOf(f.year, f.month, f.day)) - weekdayIndex(weekStart) + 7) % 7;
-  return zonedFieldsToUtc({ year: f.year, month: f.month, day: f.day - back, hour: 0, minute: 0, second: 0 }, tz);
-}
-function startOfMonthInZone(epochMs, tz) {
-  const f = utcToZonedFields(epochMs, tz);
-  return zonedFieldsToUtc({ year: f.year, month: f.month, day: 1, hour: 0, minute: 0, second: 0 }, tz);
-}
-function addDaysInZone(epochMs, days, tz) {
-  const f = utcToZonedFields(epochMs, tz);
-  return zonedFieldsToUtc({ ...f, day: f.day + days }, tz);
-}
-function addMonthsInZone(epochMs, months, tz) {
-  const f = utcToZonedFields(epochMs, tz);
-  const probe = new Date(Date.UTC(f.year, f.month - 1 + months, 1));
-  const year = probe.getUTCFullYear();
-  const month = probe.getUTCMonth() + 1;
-  const day = Math.min(f.day, daysInMonth(year, month));
-  return zonedFieldsToUtc({ ...f, year, month, day }, tz);
-}
-function addDaysToDateString(s, days) {
-  const d = parseDateString(s);
-  const t = new Date(Date.UTC(d.year, d.month - 1, d.day + days));
-  return `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())}`;
-}
-function isSameDayInZone(a, b, tz) {
-  return dateStringInZone(a, tz) === dateStringInZone(b, tz);
-}
-function dayRange(epochMs, tz) {
-  const start = startOfDayInZone(epochMs, tz);
-  return { start, end: addDaysInZone(start, 1, tz) };
-}
-function weekRange(epochMs, tz, weekStart = "MO") {
-  const start = startOfWeekInZone(epochMs, tz, weekStart);
-  return { start, end: addDaysInZone(start, 7, tz) };
-}
-function monthGrid(year, month, tz, weekStart = "MO") {
-  const firstOfMonth = `${year}-${pad(month)}-01`;
-  const leading = (weekdayIndex(weekdayOf(year, month, 1)) - weekdayIndex(weekStart) + 7) % 7;
-  const gridStartDate = addDaysToDateString(firstOfMonth, -leading);
-  const cells = [];
-  let date = gridStartDate;
-  for (let i = 0;i < 42; i++) {
-    const d = parseDateString(date);
-    const nextDate = addDaysToDateString(date, 1);
-    cells.push({
-      date,
-      start: startOfDayForDate(date, tz),
-      end: startOfDayForDate(nextDate, tz),
-      dayOfMonth: d.day,
-      weekday: weekdayOf(d.year, d.month, d.day),
-      inCurrentMonth: d.year === year && d.month === month
-    });
-    date = nextDate;
-  }
-  return cells;
-}
-
-// src/resources/calendar/recurrence.ts
-var MAX_ITER = 1e4;
-var DEFAULT_LIMIT = 1000;
-function pad2(n) {
-  return String(n).padStart(2, "0");
-}
-function dateKeyOf(d) {
-  return `${d.year}-${pad2(d.month)}-${pad2(d.day)}`;
-}
-function dateNum(d) {
-  return d.year * 1e4 + d.month * 100 + d.day;
-}
-function addDaysToDate(d, days) {
-  const t = new Date(Date.UTC(d.year, d.month - 1, d.day + days));
-  return { year: t.getUTCFullYear(), month: t.getUTCMonth() + 1, day: t.getUTCDate() };
-}
-function dateDiffDays(a, b) {
-  const pa = parseDateString(a);
-  const pb = parseDateString(b);
-  const ms = Date.UTC(pb.year, pb.month - 1, pb.day) - Date.UTC(pa.year, pa.month - 1, pa.day);
-  return Math.round(ms / 86400000);
-}
-function mergeOverride(item, patch) {
-  return { ...item, ...patch };
-}
-function moOffset(w) {
-  return (weekdayIndex(w) - weekdayIndex("MO") + 7) % 7;
-}
-function resolveNthWeekday(year, month, sel) {
-  const nth = sel.nth;
-  if (!Number.isInteger(nth) || nth === 0 || nth < -5 || nth > 5)
-    return;
-  const dim = daysInMonth(year, month);
-  if (nth > 0) {
-    const firstW = weekdayOf(year, month, 1);
-    const day2 = 1 + (weekdayIndex(sel.weekday) - weekdayIndex(firstW) + 7) % 7 + (nth - 1) * 7;
-    return day2 <= dim ? day2 : undefined;
-  }
-  const lastW = weekdayOf(year, month, dim);
-  const day = dim - (weekdayIndex(lastW) - weekdayIndex(sel.weekday) + 7) % 7 - (-nth - 1) * 7;
-  return day >= 1 ? day : undefined;
-}
-function* candidateDates(rule, anchor) {
-  const interval = Math.max(1, rule.interval ?? 1);
-  const anchorNum = dateNum(anchor);
-  if (rule.freq === "daily") {
-    let d = anchor;
-    while (true) {
-      yield d;
-      d = addDaysToDate(d, interval);
-    }
-  } else if (rule.freq === "weekly") {
-    const days = rule.byDay?.length ? rule.byDay : [weekdayOf(anchor.year, anchor.month, anchor.day)];
-    const offsets = [...new Set(days.map(moOffset))].sort((a, b) => a - b);
-    const anchorOff = moOffset(weekdayOf(anchor.year, anchor.month, anchor.day));
-    let blockStart = addDaysToDate(anchor, -anchorOff);
-    while (true) {
-      for (const off of offsets) {
-        const d = addDaysToDate(blockStart, off);
-        if (dateNum(d) < anchorNum)
-          continue;
-        yield d;
-      }
-      blockStart = addDaysToDate(blockStart, interval * 7);
-    }
-  } else if (rule.freq === "monthly") {
-    let year = anchor.year;
-    let month = anchor.month;
-    while (true) {
-      const dim = daysInMonth(year, month);
-      let days;
-      if (rule.byWeekday?.length) {
-        const resolved = rule.byWeekday.map((sel) => resolveNthWeekday(year, month, sel)).filter((d) => d !== undefined);
-        days = [...new Set(resolved)].sort((a, b) => a - b);
-      } else if (rule.byMonthDay?.length) {
-        const resolved = rule.byMonthDay.map((d) => d < 0 ? dim + 1 + d : d).filter((d) => d >= 1 && d <= dim);
-        days = [...new Set(resolved)].sort((a, b) => a - b);
-      } else {
-        days = anchor.day <= dim ? [anchor.day] : [];
-      }
-      for (const day of days) {
-        const d = { year, month, day };
-        if (dateNum(d) < anchorNum)
-          continue;
-        yield d;
-      }
-      month += interval;
-      while (month > 12) {
-        month -= 12;
-        year += 1;
-      }
-    }
-  } else {
-    let year = anchor.year;
-    while (true) {
-      if (anchor.day <= daysInMonth(year, anchor.month)) {
-        yield { year, month: anchor.month, day: anchor.day };
-      }
-      year += interval;
-    }
-  }
-}
-function expandOccurrences(item, rangeStart, rangeEnd, opts) {
-  const tz = item.timeZone;
-  const limit = opts?.limit ?? DEFAULT_LIMIT;
-  const results = [];
-  let anchor;
-  let timeOfDay;
-  let durationMs = 0;
-  let durationDays = 1;
-  if (item.allDay) {
-    anchor = parseDateString(item.startDate);
-    timeOfDay = { hour: 0, minute: 0, second: 0 };
-    durationDays = dateDiffDays(item.startDate, item.endDate) + 1;
-    if (durationDays < 1)
-      durationDays = 1;
-  } else {
-    const f = utcToZonedFields(item.start, tz);
-    anchor = { year: f.year, month: f.month, day: f.day };
-    timeOfDay = { hour: f.hour, minute: f.minute, second: f.second };
-    durationMs = item.end - item.start;
-  }
-  const overrides = new Map(item.overrides?.map((o) => [o.originalStart, o]) ?? []);
-  const exdates = new Set(item.exdates ?? []);
-  function effectiveInterval(originalStart, slotDateKey, patch) {
-    if (item.allDay) {
-      const startDate = patch?.startDate ?? slotDateKey;
-      const endDate = patch?.endDate ?? addDaysToDateString(startDate, durationDays - 1);
-      return {
-        start: startOfDayForDate(startDate, tz),
-        end: startOfDayForDate(addDaysToDateString(endDate, 1), tz),
-        startDate,
-        endDate
-      };
-    }
-    const start = patch?.start ?? originalStart;
-    const end = patch?.end ?? start + durationMs;
-    return { start, end };
-  }
-  function pushOccurrence(originalStart, originalStartKey, eff, effItem, isOverride) {
-    const occ = {
-      itemId: item.id,
-      calendarId: item.calendarId,
-      kind: effItem.kind,
-      allDay: item.allDay,
-      title: effItem.title,
-      start: eff.start,
-      end: eff.end,
-      occurrenceKey: `${item.id}::${originalStartKey}`,
-      originalStart,
-      isOverride,
-      item: effItem
-    };
-    if (eff.startDate !== undefined)
-      occ.startDate = eff.startDate;
-    if (eff.endDate !== undefined)
-      occ.endDate = eff.endDate;
-    results.push(occ);
-  }
-  if (!item.recurrence) {
-    const originalStart = item.allDay ? startOfDayForDate(item.startDate, tz) : item.start;
-    const originalStartKey = item.allDay ? item.startDate : String(originalStart);
-    const eff = effectiveInterval(originalStart, item.allDay ? item.startDate : "", undefined);
-    if (eff.start < rangeEnd && eff.end > rangeStart) {
-      pushOccurrence(originalStart, originalStartKey, eff, item, false);
-    }
-    return results;
-  }
-  const rule = item.recurrence;
-  const visitedKeys = new Set;
-  let generatedCount = 0;
-  let iter = 0;
-  for (const d of candidateDates(rule, anchor)) {
-    const localFields = { year: d.year, month: d.month, day: d.day, ...timeOfDay };
-    const originalStart = zonedFieldsToUtc(localFields, tz);
-    const slotDateKey = dateKeyOf(d);
-    const originalStartKey = item.allDay ? slotDateKey : String(originalStart);
-    generatedCount += 1;
-    if (rule.count !== undefined && generatedCount > rule.count)
-      break;
-    if (rule.until !== undefined && slotDateKey > rule.until)
-      break;
-    iter += 1;
-    if (iter > MAX_ITER)
-      break;
-    if (originalStart >= rangeEnd)
-      break;
-    const ov = overrides.get(originalStartKey);
-    if (!ov) {
-      const baseEnd = item.allDay ? startOfDayForDate(addDaysToDateString(slotDateKey, durationDays), tz) : originalStart + durationMs;
-      if (baseEnd <= rangeStart) {
-        visitedKeys.add(originalStartKey);
-        continue;
-      }
-    }
-    if (exdates.has(originalStartKey)) {
-      visitedKeys.add(originalStartKey);
-      continue;
-    }
-    if (ov?.deleted) {
-      visitedKeys.add(originalStartKey);
-      continue;
-    }
-    const effItem = ov?.patch ? mergeOverride(item, ov.patch) : item;
-    const eff = effectiveInterval(originalStart, slotDateKey, ov?.patch);
-    if (eff.start < rangeEnd && eff.end > rangeStart) {
-      pushOccurrence(originalStart, originalStartKey, eff, effItem, Boolean(ov));
-      if (results.length >= limit)
-        break;
-    }
-    visitedKeys.add(originalStartKey);
-  }
-  for (const ov of overrides.values()) {
-    if (ov.deleted || !ov.patch || visitedKeys.has(ov.originalStart))
-      continue;
-    if (results.length >= limit)
-      break;
-    if (exdates.has(ov.originalStart))
-      continue;
-    let originalStart;
-    let slotDateKey;
-    if (item.allDay) {
-      slotDateKey = ov.originalStart;
-      try {
-        originalStart = startOfDayForDate(slotDateKey, tz);
-      } catch {
-        continue;
-      }
-    } else {
-      originalStart = Number(ov.originalStart);
-      if (!Number.isFinite(originalStart))
-        continue;
-      slotDateKey = "";
-    }
-    const eff = effectiveInterval(originalStart, slotDateKey, ov.patch);
-    if (eff.start < rangeEnd && eff.end > rangeStart) {
-      pushOccurrence(originalStart, ov.originalStart, eff, mergeOverride(item, ov.patch), true);
-    }
-  }
-  results.sort((a, b) => a.start - b.start);
-  return results;
-}
-
-// src/resources/calendar/_internal/guards.ts
-function asString(v) {
-  return typeof v === "string" ? v : undefined;
-}
-function asNumber(v) {
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-}
-function asBool(v) {
-  return typeof v === "boolean" ? v : undefined;
-}
-function asStringArray(v) {
-  if (!Array.isArray(v))
-    return;
-  return v.filter((x) => typeof x === "string");
-}
-function asObject(v) {
-  return typeof v === "object" && v !== null && !Array.isArray(v) ? v : undefined;
-}
-
-// src/resources/calendar/sync-adapter.ts
-var CALENDAR_NS = "calendar";
-var ITEMS_COLLECTION = "items";
-function newId() {
-  const c = globalThis.crypto;
-  if (c?.randomUUID)
-    return c.randomUUID();
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
-    const r = Math.random() * 16 | 0;
-    const v = ch === "x" ? r : r & 3 | 8;
-    return v.toString(16);
-  });
-}
-function dropUndefined(bag) {
-  const out = {};
-  for (const [k, v] of Object.entries(bag)) {
-    if (v !== undefined)
-      out[k] = v;
-  }
-  return out;
-}
-function itemToMetadata(item) {
-  return dropUndefined({ ...item });
-}
-var KINDS = ["event", "task", "milestone", "log"];
-var FREQS = ["daily", "weekly", "monthly", "yearly"];
-var WEEKDAYS2 = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-function asWeekday(v) {
-  return typeof v === "string" && WEEKDAYS2.includes(v) ? v : undefined;
-}
-function parseRecurrence(v) {
-  const obj = asObject(v);
-  if (!obj)
-    return;
-  const freq = asString(obj.freq);
-  if (!freq || !FREQS.includes(freq))
-    return;
-  const rule = { freq };
-  const interval = asNumber(obj.interval);
-  if (interval !== undefined)
-    rule.interval = Math.max(1, Math.floor(interval));
-  if (Array.isArray(obj.byDay)) {
-    const byDay = obj.byDay.map(asWeekday).filter((w) => w !== undefined);
-    if (byDay.length)
-      rule.byDay = byDay;
-  }
-  if (Array.isArray(obj.byMonthDay)) {
-    const byMonthDay = obj.byMonthDay.filter((d) => typeof d === "number" && Number.isInteger(d) && d !== 0 && d >= -31 && d <= 31);
-    if (byMonthDay.length)
-      rule.byMonthDay = byMonthDay;
-  }
-  if (Array.isArray(obj.byWeekday)) {
-    const byWeekday = [];
-    for (const entry of obj.byWeekday) {
-      const o = asObject(entry);
-      if (!o)
-        continue;
-      const nth = asNumber(o.nth);
-      const weekday = asWeekday(o.weekday);
-      if (nth === undefined || !Number.isInteger(nth) || nth === 0 || nth < -5 || nth > 5) {
-        continue;
-      }
-      if (!weekday)
-        continue;
-      byWeekday.push({ nth, weekday });
-    }
-    if (byWeekday.length)
-      rule.byWeekday = byWeekday;
-  }
-  const until = asString(obj.until);
-  if (until !== undefined && DATE_RE.test(until))
-    rule.until = until;
-  const count = asNumber(obj.count);
-  if (count !== undefined && count >= 1)
-    rule.count = Math.floor(count);
-  return rule;
-}
-function parseOverrides(v) {
-  if (!Array.isArray(v))
-    return;
-  const out = [];
-  for (const entry of v) {
-    const o = asObject(entry);
-    if (!o)
-      continue;
-    const originalStart = asString(o.originalStart);
-    if (originalStart === undefined)
-      continue;
-    const ov = { originalStart };
-    const deleted = asBool(o.deleted);
-    if (deleted !== undefined)
-      ov.deleted = deleted;
-    const patch = asObject(o.patch);
-    if (patch !== undefined)
-      ov.patch = patch;
-    out.push(ov);
-  }
-  return out.length ? out : undefined;
-}
-function parseLinks(v) {
-  if (!Array.isArray(v))
-    return;
-  const out = [];
-  for (const entry of v) {
-    const o = asObject(entry);
-    if (!o)
-      continue;
-    const type = asString(o.type);
-    const value = asString(o.value);
-    if (type !== "conversation" && type !== "url" && type !== "entity" || value === undefined) {
-      continue;
-    }
-    const link = { type, value };
-    const label = asString(o.label);
-    if (label !== undefined)
-      link.label = label;
-    out.push(link);
-  }
-  return out.length ? out : undefined;
-}
-function parseCalendarItem(metadata) {
-  const id = asString(metadata.id);
-  const calendarId = asString(metadata.calendarId);
-  const timeZone = asString(metadata.timeZone);
-  const allDay = asBool(metadata.allDay);
-  const createdAt = asNumber(metadata.createdAt);
-  const updatedAt = asNumber(metadata.updatedAt);
-  if (id === undefined || calendarId === undefined || timeZone === undefined || allDay === undefined || createdAt === undefined || updatedAt === undefined) {
-    return null;
-  }
-  const title = asString(metadata.title) ?? "";
-  const rawKind = asString(metadata.kind);
-  const kind = KINDS.includes(rawKind ?? "") ? rawKind : "event";
-  let base;
-  if (allDay) {
-    const startDate = asString(metadata.startDate);
-    const endDate = asString(metadata.endDate);
-    if (startDate === undefined || endDate === undefined || !DATE_RE.test(startDate) || !DATE_RE.test(endDate)) {
-      return null;
-    }
-    base = {
-      id,
-      calendarId,
-      kind,
-      timeZone,
-      allDay: true,
-      title,
-      startDate,
-      endDate,
-      createdAt,
-      updatedAt
-    };
-  } else {
-    const start = asNumber(metadata.start);
-    let end = asNumber(metadata.end);
-    if (start === undefined || end === undefined)
-      return null;
-    if (end < start)
-      end = start;
-    base = {
-      id,
-      calendarId,
-      kind,
-      timeZone,
-      allDay: false,
-      title,
-      start,
-      end,
-      createdAt,
-      updatedAt
-    };
-  }
-  const recurrence = parseRecurrence(metadata.recurrence);
-  if (recurrence !== undefined)
-    base.recurrence = recurrence;
-  const exdates = asStringArray(metadata.exdates);
-  if (exdates?.length)
-    base.exdates = exdates;
-  const overrides = parseOverrides(metadata.overrides);
-  if (overrides !== undefined)
-    base.overrides = overrides;
-  const links = parseLinks(metadata.links);
-  if (links !== undefined)
-    base.links = links;
-  const tags = asStringArray(metadata.tags);
-  if (tags?.length)
-    base.tags = tags;
-  const color = asString(metadata.color);
-  if (color !== undefined)
-    base.color = color;
-  const location2 = asString(metadata.location);
-  if (location2 !== undefined)
-    base.location = location2;
-  const description = asString(metadata.description);
-  if (description !== undefined)
-    base.description = description;
-  const done = asBool(metadata.done);
-  if (done !== undefined)
-    base.done = done;
-  const completedAt = asNumber(metadata.completedAt);
-  if (completedAt !== undefined)
-    base.completedAt = completedAt;
-  return base;
-}
-function createItemOp(item) {
-  return {
-    ns: CALENDAR_NS,
-    collection: ITEMS_COLLECTION,
-    id: item.id,
-    replace: itemToMetadata(item)
-  };
-}
-function updateItemOp(id, patch) {
-  return { ns: CALENDAR_NS, collection: ITEMS_COLLECTION, id, patch };
-}
-function deleteItemOp(id) {
-  return { ns: CALENDAR_NS, collection: ITEMS_COLLECTION, id, delete: true };
-}
-function setOverrideOp(item, override) {
-  const existing = item.overrides ?? [];
-  const idx = existing.findIndex((o) => o.originalStart === override.originalStart);
-  const next = idx >= 0 ? existing.map((o, i) => i === idx ? override : o) : [...existing, override];
-  return updateItemOp(item.id, { overrides: next, updatedAt: Date.now() });
-}
-function addExdateOp(item, key) {
-  const existing = item.exdates ?? [];
-  const next = existing.includes(key) ? existing : [...existing, key];
-  return updateItemOp(item.id, { exdates: next, updatedAt: Date.now() });
-}
-
-// src/resources/calendar/calendar.ts
-class Calendar {
-  monthGrid(year, month, tz, weekStart) {
-    return monthGrid(year, month, tz, weekStart);
-  }
-  weekRange(epochMs, tz, weekStart) {
-    return weekRange(epochMs, tz, weekStart);
-  }
-  dayRange(epochMs, tz) {
-    return dayRange(epochMs, tz);
-  }
-  startOfDay(epochMs, tz) {
-    return startOfDayInZone(epochMs, tz);
-  }
-  startOfWeek(epochMs, tz, weekStart) {
-    return startOfWeekInZone(epochMs, tz, weekStart);
-  }
-  startOfMonth(epochMs, tz) {
-    return startOfMonthInZone(epochMs, tz);
-  }
-  addDays(epochMs, days, tz) {
-    return addDaysInZone(epochMs, days, tz);
-  }
-  addMonths(epochMs, months, tz) {
-    return addMonthsInZone(epochMs, months, tz);
-  }
-  isSameDay(a, b, tz) {
-    return isSameDayInZone(a, b, tz);
-  }
-  expand(item, rangeStart, rangeEnd, opts) {
-    return expandOccurrences(item, rangeStart, rangeEnd, opts);
-  }
-  newId() {
-    return newId();
-  }
-  toMetadata(item) {
-    return itemToMetadata(item);
-  }
-  parseItem(metadata) {
-    return parseCalendarItem(metadata);
-  }
-  createItemOp(item) {
-    return createItemOp(item);
-  }
-  updateItemOp(id, patch) {
-    return updateItemOp(id, patch);
-  }
-  deleteItemOp(id) {
-    return deleteItemOp(id);
-  }
-  setOverrideOp(item, override) {
-    return setOverrideOp(item, override);
-  }
-  addExdateOp(item, key) {
-    return addExdateOp(item, key);
-  }
-}
 // src/resources/decisions.ts
 class Decisions {
   client;
@@ -2379,7 +1682,7 @@ function filenameOf(source) {
 }
 
 // src/resources/files.ts
-function inputError2(message) {
+function inputError(message) {
   return new UnifiedError("invalid_input", message);
 }
 var DEFAULT_CT = "application/octet-stream";
@@ -2403,31 +1706,31 @@ function rejectDiscriminatedObject(source) {
   if (typeof s.data === "string")
     hits.push("data");
   if (hits.length > 1) {
-    throw inputError2(`files.upload source has overlapping transports (${hits.join(", ")}); pass a single Blob/Buffer/Uint8Array/ArrayBuffer or base64 data URL`);
+    throw inputError(`files.upload source has overlapping transports (${hits.join(", ")}); pass a single Blob/Buffer/Uint8Array/ArrayBuffer or base64 data URL`);
   }
   if (typeof s.fileId === "string") {
-    throw inputError2("files.upload does not accept `{ fileId }` — a fileId is the OUTPUT of upload. Pass it directly to images.edit / responses.create / chat.completions.create instead.");
+    throw inputError("files.upload does not accept `{ fileId }` — a fileId is the OUTPUT of upload. Pass it directly to images.edit / responses.create / chat.completions.create instead.");
   }
   if (typeof s.url === "string") {
-    throw inputError2("files.upload does not accept `{ url }` — hosted URLs cannot be re-uploaded. Fetch the bytes yourself (`await (await fetch(url)).blob()`) and pass the Blob.");
+    throw inputError("files.upload does not accept `{ url }` — hosted URLs cannot be re-uploaded. Fetch the bytes yourself (`await (await fetch(url)).blob()`) and pass the Blob.");
   }
   if (typeof s.data === "string") {
-    throw inputError2("files.upload does not accept `{ data, mimeType }` — pass a base64 data URL string (`data:<mime>;base64,<payload>`) or decode the bytes yourself.");
+    throw inputError("files.upload does not accept `{ data, mimeType }` — pass a base64 data URL string (`data:<mime>;base64,<payload>`) or decode the bytes yourself.");
   }
-  throw inputError2("unsupported file source; expected Blob/File/Buffer/Uint8Array/ArrayBuffer or a base64 data URL");
+  throw inputError("unsupported file source; expected Blob/File/Buffer/Uint8Array/ArrayBuffer or a base64 data URL");
 }
 async function normalise(source, opts) {
   if (typeof source === "string") {
     if (!source.startsWith("data:")) {
-      throw inputError2("string source must be a base64 data URL. Hosted URLs and raw base64 cannot be uploaded directly; " + "fetch the bytes yourself and pass a Blob/Uint8Array.");
+      throw inputError("string source must be a base64 data URL. Hosted URLs and raw base64 cannot be uploaded directly; " + "fetch the bytes yourself and pass a Blob/Uint8Array.");
     }
     const comma = source.indexOf(",");
     if (comma < 0)
-      throw inputError2("malformed data URL (missing comma)");
+      throw inputError("malformed data URL (missing comma)");
     const meta = source.slice(5, comma);
     const payload = source.slice(comma + 1);
     if (!/;base64(?:;|$)/i.test(meta)) {
-      throw inputError2("data URL must be base64-encoded (data:<mime>;base64,<payload>)");
+      throw inputError("data URL must be base64-encoded (data:<mime>;base64,<payload>)");
     }
     const mimeFromUrl = meta.split(";")[0] || undefined;
     const bytes = base64ToBytes(payload);
@@ -2438,10 +1741,10 @@ async function normalise(source, opts) {
     };
   }
   if (typeof Response !== "undefined" && source instanceof Response) {
-    throw inputError2("fetch Response is not a supported file source. Convert it first via `await res.blob()`.");
+    throw inputError("fetch Response is not a supported file source. Convert it first via `await res.blob()`.");
   }
   if (typeof Request !== "undefined" && source instanceof Request) {
-    throw inputError2("fetch Request is not a supported file source. Pass the underlying body bytes or a Blob.");
+    throw inputError("fetch Request is not a supported file source. Pass the underlying body bytes or a Blob.");
   }
   if (source instanceof Uint8Array) {
     const mime = opts.contentType || sniffMime(source) || DEFAULT_CT;
@@ -2494,7 +1797,7 @@ async function normalise(source, opts) {
   if (typeof source === "object" && source !== null) {
     rejectDiscriminatedObject(source);
   }
-  throw inputError2("unsupported file source; expected Blob/File/Buffer/Uint8Array/ArrayBuffer or a base64 data URL");
+  throw inputError("unsupported file source; expected Blob/File/Buffer/Uint8Array/ArrayBuffer or a base64 data URL");
 }
 
 class Files {
@@ -2806,14 +2109,14 @@ class Fs {
   }
 }
 // src/resources/helpers.ts
-function inputError3(message) {
+function inputError2(message) {
   return new UnifiedError("invalid_input", message);
 }
 async function normaliseSource(source, opts) {
   if (typeof source === "string") {
     if (isDataUrl(source)) {
       if (!isBase64DataUrl(source)) {
-        throw inputError3("data URL must be base64-encoded (data:<mime>;base64,<payload>). " + "URL-encoded data URLs are not supported.");
+        throw inputError2("data URL must be base64-encoded (data:<mime>;base64,<payload>). " + "URL-encoded data URLs are not supported.");
       }
       return {
         url: source,
@@ -2824,13 +2127,13 @@ async function normaliseSource(source, opts) {
     if (isHttpUrl(source) || isGsUrl(source)) {
       return { url: source, mimeType: opts.mimeType, filename: opts.filename };
     }
-    throw inputError3("string source must be an http(s) URL, data URL, or gs:// URL. " + "Pass raw base64 as `{ data, mimeType }` instead.");
+    throw inputError2("string source must be an http(s) URL, data URL, or gs:// URL. " + "Pass raw base64 as `{ data, mimeType }` instead.");
   }
   if (typeof Response !== "undefined" && source instanceof Response) {
-    throw inputError3("fetch Response is not a supported multimodal source. Convert it first " + "via `await res.blob()` or `new Uint8Array(await res.arrayBuffer())`.");
+    throw inputError2("fetch Response is not a supported multimodal source. Convert it first " + "via `await res.blob()` or `new Uint8Array(await res.arrayBuffer())`.");
   }
   if (typeof Request !== "undefined" && source instanceof Request) {
-    throw inputError3("fetch Request is not a supported multimodal source. Pass the underlying " + "URL string or body bytes instead.");
+    throw inputError2("fetch Request is not a supported multimodal source. Pass the underlying " + "URL string or body bytes instead.");
   }
   if (typeof source === "object" && source !== null && !isBinaryLike(source)) {
     const hits = [];
@@ -2841,10 +2144,10 @@ async function normaliseSource(source, opts) {
     if (typeof source.data === "string")
       hits.push("data");
     if (hits.length > 1) {
-      throw inputError3(`multimodal source has overlapping transports (${hits.join(", ")}); set exactly one of fileId / url / data`);
+      throw inputError2(`multimodal source has overlapping transports (${hits.join(", ")}); set exactly one of fileId / url / data`);
     }
     if (hits.length === 0) {
-      throw inputError3("multimodal object source must set one of `fileId`, `url`, or `data` (with `mimeType`)");
+      throw inputError2("multimodal object source must set one of `fileId`, `url`, or `data` (with `mimeType`)");
     }
     if (isFileIdInput(source)) {
       return {
@@ -2868,7 +2171,7 @@ async function normaliseSource(source, opts) {
       };
     }
     if (typeof source.data === "string") {
-      throw inputError3("raw base64 source requires `mimeType` (got `{ data }` without `mimeType`)");
+      throw inputError2("raw base64 source requires `mimeType` (got `{ data }` without `mimeType`)");
     }
   }
   const bytes = await toBytes(source);
@@ -2913,7 +2216,7 @@ async function toBytes(source) {
     const buf = await source.arrayBuffer();
     return new Uint8Array(buf);
   }
-  throw inputError3("unsupported multimodal source; expected Blob/File/Buffer/Uint8Array/ArrayBuffer");
+  throw inputError2("unsupported multimodal source; expected Blob/File/Buffer/Uint8Array/ArrayBuffer");
 }
 function isDataUrl(s) {
   return s.startsWith("data:");
@@ -2942,7 +2245,7 @@ function dataUrlFor(n, kind) {
   if (n.url)
     return n.url;
   if (n.base64 === undefined) {
-    throw inputError3(`cannot build ${kind} part: source had no bytes or URL`);
+    throw inputError2(`cannot build ${kind} part: source had no bytes or URL`);
   }
   const mime = n.mimeType ?? defaultMimeFor(kind);
   return `data:${mime};base64,${n.base64}`;
@@ -2962,7 +2265,7 @@ function defaultMimeFor(kind) {
 async function toChatImagePart(source, opts = {}) {
   const n = await normaliseSource(source, opts);
   if (n.fileId) {
-    throw inputError3("chat.completions image_url does not accept file_id. Use sdk.helpers.toResponsesImagePart " + "or sdk.helpers.toChatFilePart instead.");
+    throw inputError2("chat.completions image_url does not accept file_id. Use sdk.helpers.toResponsesImagePart " + "or sdk.helpers.toChatFilePart instead.");
   }
   const part = { type: "image_url", image_url: { url: dataUrlFor(n, "image") } };
   if (opts.detail)
@@ -2972,21 +2275,21 @@ async function toChatImagePart(source, opts = {}) {
 async function toChatAudioPart(source, opts = {}) {
   const n = await normaliseSource(source, opts);
   if (n.fileId || n.url) {
-    throw inputError3("chat.completions input_audio requires inline base64. Use a Blob/Buffer/Uint8Array, " + "or for hosted audio use sdk.helpers.toChatFilePart.");
+    throw inputError2("chat.completions input_audio requires inline base64. Use a Blob/Buffer/Uint8Array, " + "or for hosted audio use sdk.helpers.toChatFilePart.");
   }
   if (n.base64 === undefined) {
-    throw inputError3("audio part requires bytes");
+    throw inputError2("audio part requires bytes");
   }
   const format = opts.format ?? formatFromMime(n.mimeType);
   if (!format) {
-    throw inputError3("audio format could not be inferred; pass `{ format: 'wav' | 'mp3' }`");
+    throw inputError2("audio format could not be inferred; pass `{ format: 'wav' | 'mp3' }`");
   }
   return { type: "input_audio", input_audio: { data: n.base64, format } };
 }
 async function toChatVideoPart(source, opts = {}) {
   const n = await normaliseSource(source, opts);
   if (n.fileId) {
-    throw inputError3("chat.completions video_url does not accept file_id. Use sdk.helpers.toChatFilePart instead.");
+    throw inputError2("chat.completions video_url does not accept file_id. Use sdk.helpers.toChatFilePart instead.");
   }
   return { type: "video_url", video_url: { url: dataUrlFor(n, "video") } };
 }
@@ -3057,10 +2360,10 @@ async function toMessagesImagePart(source, opts = {}) {
   const data = n.base64 ?? base64FromDataUrl(n.url);
   const mime = n.mimeType ?? mimeFromDataUrl(n.url ?? "");
   if (!mime || !ANTHROPIC_IMAGE_MIME.has(mime)) {
-    throw inputError3(`messages image requires media_type in ${[...ANTHROPIC_IMAGE_MIME].join(", ")}; got ${mime ?? "<unknown>"}`);
+    throw inputError2(`messages image requires media_type in ${[...ANTHROPIC_IMAGE_MIME].join(", ")}; got ${mime ?? "<unknown>"}`);
   }
   if (!data) {
-    throw inputError3("messages image requires base64 data");
+    throw inputError2("messages image requires base64 data");
   }
   return { type: "image", source: { type: "base64", media_type: mime, data } };
 }
@@ -3073,10 +2376,10 @@ async function toMessagesDocumentPart(source, opts = {}) {
   const data = n.base64 ?? base64FromDataUrl(n.url);
   const mime = n.mimeType ?? mimeFromDataUrl(n.url ?? "");
   if (mime !== "application/pdf") {
-    throw inputError3(`messages document requires application/pdf; got ${mime ?? "<unknown>"}`);
+    throw inputError2(`messages document requires application/pdf; got ${mime ?? "<unknown>"}`);
   }
   if (!data) {
-    throw inputError3("messages document requires base64 data");
+    throw inputError2("messages document requires base64 data");
   }
   return { type: "document", source: { type: "base64", media_type: "application/pdf", data } };
 }
@@ -5243,6 +4546,22 @@ class Sync {
     });
     return res.workspaces;
   }
+  async head(workspaceId) {
+    const res = await this.client.request(`/api/v1/sync/${encodeURIComponent(workspaceId)}/head`, { method: "GET", retry: false });
+    return res.cursor;
+  }
+  async delta(workspaceId, opts) {
+    return this.client.request(`/api/v1/sync/${encodeURIComponent(workspaceId)}/delta`, {
+      method: "GET",
+      query: {
+        cursor: opts.cursor,
+        ...opts.ns ? { ns: opts.ns } : {},
+        ...opts.thin ? { thin: "1" } : {},
+        ...opts.limit ? { limit: opts.limit } : {}
+      },
+      retry: false
+    });
+  }
   workspace(workspaceId, opts = {}) {
     let ws = this.workspaces.get(workspaceId);
     if (!ws) {
@@ -5777,7 +5096,6 @@ class UnifiedAI extends Core {
   #embeddings;
   #decisions;
   #helpers;
-  #calendar;
   #projects;
   #references;
   #artifacts;
@@ -5825,9 +5143,6 @@ class UnifiedAI extends Core {
   }
   get helpers() {
     return this.#helpers ??= new Helpers;
-  }
-  get calendar() {
-    return this.#calendar ??= new Calendar;
   }
   get projects() {
     return this.#projects ??= new Projects(this);
@@ -6158,6 +5473,62 @@ class UnifiedAI extends Core {
       h["x-unified-caller"] = "agent";
     return h;
   }
+}
+
+// src/core/_internal/pkce.ts
+var ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+function randomString(len) {
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0;i < len; i++) {
+    const b = bytes[i] ?? 0;
+    out += ALPHABET[b % ALPHABET.length];
+  }
+  return out;
+}
+function generateVerifier() {
+  return randomString(64);
+}
+function generateState() {
+  return randomString(32);
+}
+async function challengeFor(verifier) {
+  const data = new TextEncoder().encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
+// src/core/_internal/tokens.ts
+function isTokenSet(value) {
+  if (!value || typeof value !== "object")
+    return false;
+  const v = value;
+  return typeof v.access_token === "string" && typeof v.refresh_token === "string" && typeof v.expires_at === "number" && typeof v.user_id === "string" && typeof v.client_id === "string";
+}
+
+// src/core/_internal/token-endpoint.ts
+async function postTokenGrant(args) {
+  const { tokenUrl, body, fetch: fetch2, makeError } = args;
+  let res;
+  try {
+    res = await fetch2(tokenUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    throw makeError(`token endpoint ${tokenUrl} unreachable`);
+  }
+  if (!res.ok) {
+    await drainResponse(res);
+    throw makeError(`token endpoint returned ${res.status}`, res.status);
+  }
+  const parsed = await res.json();
+  if (!isTokenSet(parsed)) {
+    throw makeError("token endpoint returned malformed payload");
+  }
+  return parsed;
 }
 
 // src/localAgents/config.ts
@@ -6515,6 +5886,8 @@ function dispatchFrame(frame, handlers) {
 }
 // src/localAgents/relayClient.ts
 var REQUEST_TIMEOUT_MS2 = 30000;
+var WAKE_TIMEOUT_MS = 1e4;
+var WAKE_RETRY_MS = 500;
 var BACKOFF_MIN_MS = 500;
 var BACKOFF_MAX_MS = 15000;
 async function listRelayHosts() {
@@ -6536,6 +5909,20 @@ async function listRelayHosts() {
 function isRelayHost(value) {
   const v = value;
   return !!v && typeof v.deviceId === "string" && typeof v.deviceName === "string";
+}
+async function relayFetch(path, init = {}) {
+  const token = await unifiedToken();
+  if (!token)
+    return null;
+  const base = unifiedApiUrl().replace(/\/+$/, "");
+  return fetch(`${base}/api/v1/relay${path}`, {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${token}` }
+  });
+}
+async function knockRelayHost(deviceId) {
+  const res = await relayFetch(`/knock/${encodeURIComponent(deviceId)}`, { method: "POST" }).catch(() => null);
+  return res?.ok ? await res.json() : null;
 }
 function relayWsUrl(path) {
   const url = new URL(`${relayWsBase()}/relay${path}`);
@@ -6594,6 +5981,8 @@ function createConnection(deviceId) {
   let backoff = BACKOFF_MIN_MS;
   let retryTimer = null;
   let closedByUs = false;
+  let opening = false;
+  let wakeUntil = 0;
   function settleReady() {
     if (approval.get() !== "approved" || !connected.get())
       return;
@@ -6679,7 +6068,8 @@ function createConnection(deviceId) {
         break;
       }
       case "host-closed":
-        lastError.set("That computer went offline.");
+        if (runs.size)
+          lastError.set("That computer went offline.");
         endAllRuns("the host went offline");
         break;
       case "detect-result":
@@ -6746,9 +6136,29 @@ function createConnection(deviceId) {
     for (const id of [...pending.keys()])
       rejectPending(id, `Relay connection lost: ${reason}`);
   }
+  function reportOffline() {
+    wakeUntil = 0;
+    lastError.set("That computer is offline.");
+    failReady("That computer is offline.");
+  }
   async function open() {
+    if (closedByUs || opening || socket)
+      return;
+    opening = true;
+    try {
+      await connect();
+    } finally {
+      opening = false;
+    }
+  }
+  async function connect() {
+    if (!wakeUntil)
+      wakeUntil = Date.now() + WAKE_TIMEOUT_MS;
+    const knock = await knockRelayHost(deviceId);
     if (closedByUs)
       return;
+    if (knock && !knock.online)
+      return reportOffline();
     const proto = await bearerSubprotocol();
     if (closedByUs)
       return;
@@ -6793,14 +6203,27 @@ function createConnection(deviceId) {
       if (socket === ws)
         socket = null;
       endAllRuns("socket closed");
-      if (event.code === 4403 || event.code === 4404) {
-        if (event.code === 4403)
-          approval.set("denied");
-        lastError.set(event.code === 4404 ? "That computer is offline." : "That computer isn't yours to use.");
-        failReady(lastError.get() ?? "Relay closed.");
+      if (event.code === 4403) {
+        wakeUntil = 0;
+        approval.set("denied");
+        lastError.set("That computer isn't yours to use.");
+        failReady("That computer isn't yours to use.");
         return;
       }
-      scheduleRetry();
+      if (event.code === 4404) {
+        if (Date.now() >= wakeUntil)
+          return reportOffline();
+        if (!retryTimer && !closedByUs) {
+          retryTimer = setTimeout(() => {
+            retryTimer = null;
+            open();
+          }, WAKE_RETRY_MS);
+        }
+        return;
+      }
+      wakeUntil = 0;
+      if (readyWaiters.length)
+        scheduleRetry();
     };
     ws.onerror = () => {
       lastError.set("Relay connection error.");
@@ -6829,6 +6252,8 @@ function createConnection(deviceId) {
       if (approval.get() === "denied") {
         return Promise.reject(new Error("That computer declined this device."));
       }
+      if (!retryTimer)
+        open();
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(notReadyReason())), timeoutMs);
         readyWaiters.push({
@@ -7699,12 +7124,12 @@ async function listLocalModels(pref) {
 function foldHistoryPrompt(messages, userText, hasSession) {
   if (hasSession)
     return userText;
-  const history = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
-  if (history.length && history[history.length - 1]?.content === userText)
-    history.pop();
-  if (!history.length)
+  const history2 = messages.filter((m) => (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim());
+  if (history2.length && history2[history2.length - 1]?.content === userText)
+    history2.pop();
+  if (!history2.length)
     return userText;
-  const transcript = history.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join(`
+  const transcript = history2.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join(`
 
 `);
   return `Earlier conversation for context:
@@ -8389,16 +7814,90 @@ function getProviderLogo(input, theme = "light") {
 
 // src/app/dev-host-api.ts
 var env = import.meta.env ?? {};
+var OAUTH_CLIENT_ID = env.VITE_OAUTH_CLIENT_ID || "demo-app";
+var OAUTH_AUTHORIZE_URL = env.VITE_OAUTH_AUTHORIZE_URL || "http://localhost:9000/oauth/authorize";
+var OAUTH_TOKEN_URL = "/oauth/token";
+var TOKENS_KEY = `unifiedai.dev-oauth.${env.VITE_UNIFIED_APP_ID || "dev-app"}`;
+var PENDING_KEY = `${TOKENS_KEY}.pending`;
+var redirectUri = () => `${location.origin}/callback`;
+var tokenError = (msg, status2) => new UnifiedError("auth_token_exchange_failed", msg, status2);
+function readTokens() {
+  try {
+    return JSON.parse(localStorage.getItem(TOKENS_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+function grant(body) {
+  return postTokenGrant({ tokenUrl: OAUTH_TOKEN_URL, fetch, body, makeError: tokenError }).then((tokens2) => {
+    localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens2));
+    return tokens2;
+  });
+}
+async function redirectToSignIn() {
+  const verifier = generateVerifier();
+  const state = generateState();
+  sessionStorage.setItem(PENDING_KEY, JSON.stringify({ verifier, state }));
+  const url = new URL(OAUTH_AUTHORIZE_URL);
+  url.search = new URLSearchParams({
+    client_id: OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri(),
+    response_type: "code",
+    code_challenge: await challengeFor(verifier),
+    code_challenge_method: "S256",
+    state
+  }).toString();
+  location.assign(url.toString());
+  return new Promise(() => {});
+}
+async function completeCallback() {
+  const params = new URLSearchParams(location.search);
+  history.replaceState(null, "", "/");
+  const pending = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? "null");
+  sessionStorage.removeItem(PENDING_KEY);
+  const code = params.get("code");
+  if (!code || !pending || params.get("state") !== pending.state) {
+    console.warn("[dev-host-api] OAuth sign-in failed:", params.get("error") ?? "state mismatch");
+    return;
+  }
+  await grant({
+    grant_type: "authorization_code",
+    code,
+    code_verifier: pending.verifier,
+    client_id: OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri()
+  }).catch((err) => console.warn("[dev-host-api] OAuth code exchange failed:", err));
+}
+var callbackDone = typeof location !== "undefined" && location.pathname === "/callback" ? completeCallback() : Promise.resolve();
+var refreshing = null;
+async function devToken() {
+  await callbackDone;
+  const tokens2 = readTokens();
+  if (tokens2 && tokens2.expires_at - 60 > Date.now() / 1000)
+    return tokens2.access_token;
+  if (tokens2) {
+    refreshing ??= grant({
+      grant_type: "refresh_token",
+      refresh_token: tokens2.refresh_token,
+      client_id: OAUTH_CLIENT_ID
+    }).finally(() => {
+      refreshing = null;
+    });
+    try {
+      return (await refreshing).access_token;
+    } catch {
+      localStorage.removeItem(TOKENS_KEY);
+    }
+  }
+  return redirectToSignIn();
+}
 var sdk = null;
 function getSdk() {
   if (!sdk) {
     const devApiKey = env.VITE_DEV_API_KEY;
-    if (!devApiKey) {
-      throw new Error("VITE_DEV_API_KEY is not set. Copy .env.example to .env and add your dev uapi_ key.");
-    }
     sdk = new UnifiedAI({
       apiUrl: "",
-      token: () => devApiKey,
+      token: devApiKey ? () => devApiKey : devToken,
       appId: env.VITE_UNIFIED_APP_ID || "dev-app",
       fetch: (input, init) => fetch(input, { ...init, credentials: "include" })
     });
@@ -8602,9 +8101,10 @@ export {
   getCurrentProject,
   fsTools,
   disconnectDesktop2 as disconnectDesktop,
+  devToken,
   connectDesktop2 as connectDesktop,
   checkDesktopAvailable2 as checkDesktopAvailable
 };
 
-//# debugId=C30A044D2EDCF10764756E2164756E21
+//# debugId=A1E25D13FAF7BEF164756E2164756E21
 //# sourceMappingURL=dev-host-api.js.map

@@ -55,7 +55,6 @@ src/
 │   ├── _kv/                  # shared keys, records, queries, namespace/backend resolution, grants
 │   ├── agent/                # tool-loop scaffolding (agent, fs-tools, storage-tools, sync-tools, web-tools)
 │   ├── sharing.ts            # public namespace-grant types (sdk.storage.grants / sdk.sync.grants)
-│   ├── calendar/             # date math, recurrence, sync-adapter (curated barrel)
 │   ├── fs/                   # jailed file workspace (cloud backend, path jail, errors)
 │   ├── storage/              # typed collections (cloud + in-memory backends)
 │   ├── sync/                 # workspace sync engine (+ fake-server, exported via /testing)

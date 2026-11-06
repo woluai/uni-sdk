@@ -13,10 +13,8 @@
   `@unifiedai/sdk/testing`.** Test doubles no longer ship in production
   bundles. Update imports to
   `@unifiedai/sdk/testing`.
-- **Calendar barrel curated.** The internal `dateStringInZone`,
-  `parseDateString`, `startOfDayForDate`, `endOfDayExclusive`, and
-  `addDaysToDateString` helpers are no longer exported; the documented
-  calendar surface remains public.
+- **Calendar removed.** `sdk.calendar` and calendar-specific date, recurrence,
+  and sync-adapter exports are no longer available.
 
 ### Added
 

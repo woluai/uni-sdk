@@ -1,5 +1,15 @@
 import type { Core } from "../core/core.js";
 export type ModelType = "text" | "image" | "video" | "audio" | "embedding";
+export type ModelReasoningOption = {
+    type: "effort";
+    values: string[];
+} | {
+    type: "budget_tokens";
+    min?: number;
+    max?: number;
+} | {
+    type: "toggle";
+};
 export interface ModelAuthor {
     name: string;
     color?: string | null;
@@ -26,6 +36,7 @@ export interface Model {
     /** From the AI Gateway catalog. */
     description?: string | null;
     tags?: string[];
+    reasoning_options?: ModelReasoningOption[];
     /** Max output tokens and training-knowledge cutoff (e.g. "2025-07-31"), when the gateway knows them. */
     max_tokens?: number | null;
     knowledge?: string | null;

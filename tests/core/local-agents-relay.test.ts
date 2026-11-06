@@ -65,7 +65,9 @@ const realWs = (globalThis as { WebSocket?: unknown }).WebSocket;
 
 const { UnifiedAI } = await import("../../src/core/client");
 const { configureLocalAgents } = await import("../../src/localAgents/config");
-const { closeAllRelayHosts, connectRelayHost } = await import("../../src/localAgents/relayClient");
+const { closeAllRelayHosts, connectRelayHost, knockRelayHost, postRelayPresence, relayStatus } = await import(
+  "../../src/localAgents/relayClient"
+);
 
 /** The socket is opened after an awaited token fetch; let that microtask land. */
 async function flush(times = 4) {
@@ -86,9 +88,19 @@ async function attached(deviceId = "dev-1") {
   return { conn, ws };
 }
 
+const realFetch = globalThis.fetch;
+let knocks: string[] = [];
+let knockAnswer: () => Response = () => Response.json({ online: true, socket: true });
+
 beforeEach(() => {
   closeAllRelayHosts();
   FakeSocket.last = null;
+  knocks = [];
+  knockAnswer = () => Response.json({ online: true, socket: true });
+  globalThis.fetch = (async (url: string) => {
+    knocks.push(String(url));
+    return knockAnswer();
+  }) as unknown as typeof fetch;
   configureLocalAgents({
     client: new UnifiedAI({ apiUrl: "http://localhost:3141", token: "unified-token" }),
     wsBaseUrl: "http://localhost:3141/api/v1",
@@ -97,6 +109,7 @@ beforeEach(() => {
 
 afterEach(() => {
   closeAllRelayHosts();
+  globalThis.fetch = realFetch;
   // `configureLocalAgents` merges into module-level state shared with every
   // other test file in this run — clear it back out so this file's client /
   // wsBaseUrl don't leak into local-agents.test.ts's own assertions.
@@ -348,14 +361,20 @@ describe("run streaming", () => {
     expect(conn.connected.get()).toBe(false);
   });
 
-  test("a terminal 4404 stops retrying and says the host is offline", async () => {
+  test("a 4404 past the wake window stops retrying and says the host is offline", async () => {
     const conn = connectRelayHost("dev-9");
     await flush();
     const ws = FakeSocket.last!;
     ws.open();
     FakeSocket.last = null;
-    ws.serverClose(4404);
-    await flush();
+    const realNow = Date.now;
+    Date.now = () => realNow() + 11_000;
+    try {
+      ws.serverClose(4404);
+    } finally {
+      Date.now = realNow;
+    }
+    await new Promise((r) => setTimeout(r, 520));
     // No replacement socket was constructed.
     expect(FakeSocket.last).toBeNull();
     expect(conn.lastError.get()).toMatch(/offline/i);
@@ -382,5 +401,104 @@ describe("run streaming", () => {
     // client, so the failure must not be reported as a refusal.
     await expect(conn.ready(5)).rejects.toThrow(/reach that computer/i);
     expect(conn.approval.get()).not.toBe("denied");
+  });
+});
+
+describe("on-demand sockets", () => {
+  test("knocks before connecting", async () => {
+    connectRelayHost("dev-1");
+    await flush();
+    expect(knocks).toEqual(["http://localhost:3141/api/v1/relay/knock/dev-1"]);
+    expect(FakeSocket.last).not.toBeNull();
+  });
+
+  test("an offline answer fails the waiter and opens no socket", async () => {
+    knockAnswer = () => Response.json({ online: false, socket: false });
+    const conn = connectRelayHost("dev-1");
+    const ready = conn.ready(200);
+    await expect(ready).rejects.toThrow(/offline/i);
+    expect(FakeSocket.last).toBeNull();
+    expect(conn.lastError.get()).toMatch(/offline/i);
+  });
+
+  test("a knock the server can't answer still tries the socket", async () => {
+    knockAnswer = () => new Response("nope", { status: 500 });
+    connectRelayHost("dev-1");
+    await flush();
+    expect(FakeSocket.last).not.toBeNull();
+  });
+
+  test("a 4404 right after a knock retries until the host opens", async () => {
+    knockAnswer = () => Response.json({ online: true, socket: false });
+    const conn = connectRelayHost("dev-1");
+    const ready = conn.ready(5_000);
+    await flush();
+    const first = FakeSocket.last!;
+    first.serverClose(4404);
+    expect(conn.lastError.get()).toBeNull();
+
+    await new Promise((r) => setTimeout(r, 520));
+    await flush();
+    const second = FakeSocket.last!;
+    expect(second).not.toBe(first);
+    second.open();
+    second.deliver({ type: "attached", host: { deviceId: "dev-1", deviceName: "Studio" } });
+    second.deliver({ type: "approval", state: "approved" });
+    await ready;
+    // Each attempt knocks, so a host that closed between two tries is woken again.
+    expect(knocks.length).toBe(2);
+  });
+
+  test("a normal close with nobody waiting does not reconnect, and ready() reopens", async () => {
+    const { conn, ws } = await attached();
+    await conn.ready(100);
+    ws.deliver({ type: "host-closed" });
+    ws.serverClose(1000);
+    // Going idle is not an error, and nothing should wake the host again.
+    expect(conn.lastError.get()).toBeNull();
+    await new Promise((r) => setTimeout(r, 600));
+    expect(FakeSocket.last).toBe(ws);
+    const before = knocks.length;
+
+    const ready = conn.ready(1_000);
+    await flush();
+    const next = FakeSocket.last!;
+    expect(next).not.toBe(ws);
+    expect(knocks.length).toBe(before + 1);
+    next.open();
+    next.deliver({ type: "attached", host: { deviceId: "dev-1", deviceName: "Studio" } });
+    next.deliver({ type: "approval", state: "approved" });
+    await ready;
+  });
+
+  test("a socket lost mid-run reports it and does not reconnect on its own", async () => {
+    const { conn, ws } = await attached();
+    const exits: unknown[] = [];
+    await conn.startRun(
+      { runId: "r1", lane: "claude-code", prompt: "x", model: null, mcp: false },
+      { onLine() {}, onExit: (e) => exits.push(e) },
+    );
+    ws.deliver({ type: "host-closed" });
+    expect(conn.lastError.get()).toMatch(/offline/i);
+    ws.serverClose(1000);
+    expect(exits).toHaveLength(1);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(FakeSocket.last).toBe(ws);
+  });
+
+  test("status and presence speak the wire", async () => {
+    knockAnswer = () => Response.json({ hosts: [], chatSync: 3 });
+    expect(await relayStatus()).toEqual({ hosts: [], chatSync: 3 });
+
+    knockAnswer = () => Response.json({ wake: true, chatSync: 3, sendCapabilities: false });
+    expect(await postRelayPresence({ deviceId: "dev-1" })).toEqual({
+      status: 200,
+      answer: { wake: true, chatSync: 3, sendCapabilities: false },
+    });
+
+    knockAnswer = () => new Response("no", { status: 403 });
+    expect(await postRelayPresence({ deviceId: "dev-1" })).toEqual({ status: 403, answer: null });
+    expect(await knockRelayHost("dev-1")).toBeNull();
+    expect(await relayStatus()).toBeNull();
   });
 });

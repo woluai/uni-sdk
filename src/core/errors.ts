@@ -4,7 +4,7 @@ export type UnifiedErrorCode =
   // Core / client lifecycle
   | "not_implemented"
   | "not_bootstrapped"
-  // Client-side input validation (raised across resources, sync, and calendar)
+  // Client-side input validation (raised across resources and sync)
   | "invalid_input"
   // Caller abort observed before/between requests (files upload, chunked upload)
   | "aborted"

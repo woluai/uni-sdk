@@ -108,6 +108,8 @@ export type ChatCompletionToolChoice =
   | "required"
   | { type: "function"; function: { name: string } };
 
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+
 export interface ChatCompletionCreateParams {
   model: string;
   messages: ChatCompletionMessage[];
@@ -127,6 +129,7 @@ export interface ChatCompletionCreateParams {
   response_format?: ChatCompletionResponseFormat;
   stream_options?: { include_usage?: boolean };
   thinking?: { type: "enabled"; budget_tokens?: number };
+  reasoning_effort?: ReasoningEffort;
   /**
    * Ask the gateway to deterministically compress older conversation context
    * (tool outputs, long prior assistant turns) server-side before routing.

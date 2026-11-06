@@ -8,8 +8,9 @@
 // Generic — no app-specific behavior. It mirrors the host's own bridge so the
 // app exercises a REAL uni-sdk instance against unified-api through the app's
 // dev proxy, not a mock:
-//  - `getSdk()` builds a `UnifiedAI` with relative URLs (`/api/v1/*`) and the
-//    dev `uapi_` key from VITE_DEV_API_KEY in the app's .env. The app id comes
+//  - `getSdk()` builds a `UnifiedAI` with relative URLs (`/api/v1/*`),
+//    authenticated by the dev `uapi_` key from VITE_DEV_API_KEY when set, else
+//    by an OAuth PKCE sign-in (see `devToken`). The app id comes
 //    from VITE_UNIFIED_APP_ID, which the `unifiedApp` plugin defines from its
 //    `appId` option.
 //  - Theme resolves from the OS preference (there is no host shell setting
@@ -22,6 +23,10 @@
 //    when embedded. See the section at the bottom for the consent rules.
 
 import { UnifiedAI } from "../core/client";
+import { challengeFor, generateState, generateVerifier } from "../core/_internal/pkce";
+import { postTokenGrant } from "../core/_internal/token-endpoint";
+import type { TokenSet } from "../core/_internal/tokens";
+import { UnifiedError } from "../core/errors";
 import type { HostModelEntry, ProjectContext } from "../host-api";
 import {
   type LocalAgentDevice,
@@ -55,21 +60,123 @@ import { getProviderLogo } from "../resources/logos";
 const env: Record<string, string | undefined> =
   (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
 
+// ── Standalone-dev sign-in (OAuth PKCE, full-page redirect) ────────────────
+//
+// Without VITE_DEV_API_KEY the shim signs the user in like a marketplace app:
+// redirect to the web client's authorize page, come back to `<origin>/callback`,
+// exchange the code at unified-api's `/oauth/token`. The app's dev proxy must
+// forward `/oauth` to unified-api (that endpoint is root-mounted, not under
+// /api/v1, and unified-api sends no CORS headers). `demo-app` is the seeded
+// public client that allows `http://localhost:*/callback`.
+const OAUTH_CLIENT_ID = env.VITE_OAUTH_CLIENT_ID || "demo-app";
+const OAUTH_AUTHORIZE_URL = env.VITE_OAUTH_AUTHORIZE_URL || "http://localhost:9000/oauth/authorize";
+const OAUTH_TOKEN_URL = "/oauth/token";
+const TOKENS_KEY = `unifiedai.dev-oauth.${env.VITE_UNIFIED_APP_ID || "dev-app"}`;
+const PENDING_KEY = `${TOKENS_KEY}.pending`;
+
+const redirectUri = () => `${location.origin}/callback`;
+const tokenError = (msg: string, status?: number) =>
+  new UnifiedError("auth_token_exchange_failed", msg, status);
+
+function readTokens(): TokenSet | null {
+  try {
+    return JSON.parse(localStorage.getItem(TOKENS_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function grant(body: Record<string, string>): Promise<TokenSet> {
+  return postTokenGrant({ tokenUrl: OAUTH_TOKEN_URL, fetch, body, makeError: tokenError }).then(
+    (tokens) => {
+      localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens));
+      return tokens;
+    },
+  );
+}
+
+async function redirectToSignIn(): Promise<never> {
+  const verifier = generateVerifier();
+  const state = generateState();
+  sessionStorage.setItem(PENDING_KEY, JSON.stringify({ verifier, state }));
+  const url = new URL(OAUTH_AUTHORIZE_URL);
+  url.search = new URLSearchParams({
+    client_id: OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri(),
+    response_type: "code",
+    code_challenge: await challengeFor(verifier),
+    code_challenge_method: "S256",
+    state,
+  }).toString();
+  location.assign(url.toString());
+  return new Promise<never>(() => {}); // the page is navigating away
+}
+
+// Back from the authorize page: pull the code off the URL before the app's
+// router sees `/callback`, then exchange it.
+async function completeCallback(): Promise<void> {
+  const params = new URLSearchParams(location.search);
+  history.replaceState(null, "", "/");
+  const pending = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? "null");
+  sessionStorage.removeItem(PENDING_KEY);
+  const code = params.get("code");
+  if (!code || !pending || params.get("state") !== pending.state) {
+    console.warn("[dev-host-api] OAuth sign-in failed:", params.get("error") ?? "state mismatch");
+    return;
+  }
+  await grant({
+    grant_type: "authorization_code",
+    code,
+    code_verifier: pending.verifier,
+    client_id: OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri(),
+  }).catch((err) => console.warn("[dev-host-api] OAuth code exchange failed:", err));
+}
+
+const callbackDone: Promise<void> =
+  typeof location !== "undefined" && location.pathname === "/callback"
+    ? completeCallback()
+    : Promise.resolve();
+
+let refreshing: Promise<TokenSet> | null = null;
+
+/**
+ * The standalone-dev access token: cached → refreshed (single-flight, so a
+ * burst of boot requests rotates the refresh token once) → full-page sign-in.
+ * ponytail: a token revoked server-side before expiry keeps 401ing until it
+ * expires or localStorage is cleared; add a 401 hook if that bites.
+ */
+export async function devToken(): Promise<string> {
+  await callbackDone;
+  const tokens = readTokens();
+  if (tokens && tokens.expires_at - 60 > Date.now() / 1000) return tokens.access_token;
+  if (tokens) {
+    refreshing ??= grant({
+      grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+      client_id: OAUTH_CLIENT_ID,
+    }).finally(() => {
+      refreshing = null;
+    });
+    try {
+      return (await refreshing).access_token;
+    } catch {
+      localStorage.removeItem(TOKENS_KEY);
+    }
+  }
+  return redirectToSignIn();
+}
+
 let sdk: UnifiedAI | null = null;
 
 export function getSdk(): UnifiedAI {
   if (!sdk) {
     const devApiKey = env.VITE_DEV_API_KEY;
-    if (!devApiKey) {
-      throw new Error(
-        "VITE_DEV_API_KEY is not set. Copy .env.example to .env and add your dev uapi_ key.",
-      );
-    }
     sdk = new UnifiedAI({
       // Empty apiUrl keeps requests relative (`/api/v1/*`) so the Vite dev
       // proxy routes them to unified-api.
       apiUrl: "",
-      token: () => devApiKey,
+      token: devApiKey ? () => devApiKey : devToken,
       appId: env.VITE_UNIFIED_APP_ID || "dev-app",
       fetch: ((input, init) => fetch(input, { ...init, credentials: "include" })) as typeof fetch,
     });
@@ -144,12 +251,12 @@ export function registerActions(
 let autoConnect: Promise<LocalAgentSource | null> | null = null;
 
 // Give the relay the app's own credential + base URL rather than re-reading
-// env: `getSdk()` is already configured with the dev `uapi_` key, which
+// env: `getSdk()` is already configured with the dev credential, which
 // unified-api's auth accepts on `/v1/relay` like any other credential.
 //
-// `getSdk()` throws when VITE_DEV_API_KEY is unset. That must not abort the
-// caller: the loopback bridge authenticates with its own pairing token and
-// works signed-out, so a missing dev key disables only the relay half.
+// The try/catch is defensive: the loopback bridge authenticates with its own
+// pairing token and works signed-out, so an SDK failure must disable only the
+// relay half.
 function configureFromSdk(): void {
   try {
     configureLocalAgents({
@@ -159,7 +266,7 @@ function configureFromSdk(): void {
         : {}),
     });
   } catch {
-    // No dev key — bridge-only mode.
+    // SDK unavailable — bridge-only mode.
   }
 }
 

@@ -17,14 +17,14 @@ export declare function matchKind(haystackLower: string, term: string): MatchKin
  * The three text fields every provider scores against, generalized over what
  * each app happens to call them:
  *
- *  - `title`     — sheet/doc `title`, design/project `name`, note `name`, event `title`
+ *  - `title`     — sheet/doc `title`, design/project `name`, note `name`
  *  - `secondary` — the cheap human-visible line: sheets/docs `preview`, a
- *                  design's enclosing project name, an event's location+notes
+ *                  design's enclosing project name
  *  - `body`      — the write-time `searchText` content projection, where the
  *                  app has one
  *
  * Omitted fields simply contribute nothing, which is how a provider with only
- * two fields (calendar) uses the same scorer as one with three.
+ * two fields uses the same scorer as one with three.
  */
 export interface ScoreFields {
     title: string;

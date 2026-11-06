@@ -17,12 +17,10 @@ The node entry now re-exports the full browser-safe resource surface, so
 resource classes and types can be imported from the same `/node` entry as the
 OAuth client.
 
-### Calendar exports
+### Calendar removal
 
-The calendar barrel is curated rather than wildcard-exported. The `Calendar`
-facade, documented timezone/date utilities, recurrence expansion, and sync
-adapter contract remain public. Date-string plumbing used only by recurrence
-internals is no longer exported.
+`sdk.calendar` and the calendar-specific date, recurrence, and sync-adapter
+exports are no longer available.
 
 ### Node OAuth behavior
 
